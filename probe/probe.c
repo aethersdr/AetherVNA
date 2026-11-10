@@ -1,5 +1,6 @@
 /*
- * LiteVNA probe firmware, stage 0: our own code runs and USB enumerates.
+ * LiteVNA probe firmware, stage 1: our own code runs, USB enumerates, and
+ * every pin is classified as an input. No pin is ever driven.
  *
  * Copyright (C) 2026 the AetherSDR project
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -11,6 +12,9 @@
  * the board is touched. A USB CDC-ACM console answers:
  *
  *   id          chip ID, flash size, unique ID, flash access protection
+ *   pins        each GPIO read floating, with pull-up and with pull-down
+ *   activity    which pins change while all are floating inputs
+ *   adc         idle voltage on the analog-capable pins (PA0-PA7, PB0, PB1)
  *   bootloader  ask the bootloader to stay in update mode, then reset
  *   reset       software reset
  *   help
@@ -85,6 +89,10 @@ __attribute__((noreturn, used)) static void start(void)
     main();
     for (;;) WDT_CMD = 0xAAAA;
 }
+
+/* freestanding: the compiler may emit calls to these */
+void *memset(void *d, int c, unsigned n) { uint8_t *p = d; while (n--) *p++ = c; return d; }
+void *memcpy(void *d, const void *s, unsigned n) { uint8_t *p = d; const uint8_t *q = s; while (n--) *p++ = *q++; return d; }
 
 /* ---- clocks and peripherals to a known state ---- */
 static void delay(uint32_t n) { while (n--) { WDT_CMD = 0xAAAA; __asm volatile("nop"); } }
@@ -278,12 +286,17 @@ static void usb_reset(void)
 
 /* console buffers */
 static uint8_t rx_line[96]; static uint16_t rx_len;
-static uint8_t tx_ring[1024]; static uint16_t tx_head, tx_tail; static uint8_t tx_busy;
+static uint8_t tx_ring[4096]; static uint16_t tx_head, tx_tail; static uint8_t tx_busy;
+static void usb_poll(void);
+static void tx_kick(void);
 
 static void con_putc(char c)
 {
     uint16_t n = (tx_head + 1) % sizeof tx_ring;
-    if (n == tx_tail) return;                          /* full: drop */
+    for (uint32_t spin = 0; n == tx_tail && configured && spin < 2000000; spin++) {
+        WDT_CMD = 0xAAAA; usb_poll(); tx_kick();       /* full: drain to the host */
+    }
+    if (n == tx_tail) return;
     tx_ring[tx_head] = c; tx_head = n;
 }
 static void con_puts(const char *s) { while (*s) con_putc(*s++); }
@@ -358,6 +371,137 @@ static void usb_poll(void)
     }
 }
 
+/* ---- stage 1: pins, inputs only ---- */
+#define GPIO(p)     (0x40010800 + 0x400 * (p))         /* A=0 .. D=3 */
+#define GPIO_CFG(p, n) REG(GPIO(p) + ((n) < 8 ? 0x00 : 0x04))
+#define GPIO_IDT(p) REG(GPIO(p) + 0x08)
+#define GPIO_ODT(p) REG(GPIO(p) + 0x0C)
+#define IOMUX_REMAP REG(0x40010000 + 0x04)
+#define ADC1       0x40012400
+#define ADC_STS     REG(ADC1 + 0x00)
+#define ADC_CTRL2   REG(ADC1 + 0x08)
+#define ADC_SPT1    REG(ADC1 + 0x0C)
+#define ADC_SPT2    REG(ADC1 + 0x10)
+#define ADC_OSQ1    REG(ADC1 + 0x2C)
+#define ADC_OSQ3    REG(ADC1 + 0x34)
+#define ADC_ODT     REG(ADC1 + 0x4C)
+#define DEMCR       REG(0xE000EDFC)
+#define DWT_CTRL    REG(0xE0001000)
+#define DWT_CYCCNT  REG(0xE0001004)
+
+/* LQFP48 GPIOs, less PA11/PA12 (USB) and PA13/PA14 (SWD). */
+static const uint8_t pin_list[] = {
+    0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0F,
+    0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,
+    0x2D,0x2E,0x2F, 0x30,0x31,
+};
+#define NPINS (sizeof pin_list)
+
+static void pin_name(uint8_t pp) { con_putc('P'); con_putc('A' + (pp >> 4)); con_dec(pp & 15); }
+static void pin_cfg(uint8_t pp, uint32_t cfg)          /* cfg: 4 floating, 8 pull, 0 analog */
+{
+    int p = pp >> 4, n = pp & 15, sh = 4 * (n & 7);
+    GPIO_CFG(p, n) = (GPIO_CFG(p, n) & ~(0xFu << sh)) | (cfg << sh);
+}
+static void pin_pull(uint8_t pp, int up)
+{
+    int p = pp >> 4, n = pp & 15;
+    GPIO_ODT(p) = up ? GPIO_ODT(p) | (1u << n) : GPIO_ODT(p) & ~(1u << n);
+    pin_cfg(pp, 8);
+}
+static int pin_read(uint8_t pp) { return (GPIO_IDT(pp >> 4) >> (pp & 15)) & 1; }
+static void pin_release(uint8_t pp) { pin_cfg(pp, 4); GPIO_ODT(pp >> 4) &= ~(1u << (pp & 15)); }
+
+static void gpio_init(void)
+{
+    CRM_APB2EN |= 1u | (0xFu << 2) | (1u << 9);        /* IOMUX, GPIOA-D, ADC1 clocks */
+    IOMUX_REMAP = (IOMUX_REMAP & ~(7u << 24)) | (2u << 24);   /* JTAG off, SWD kept: PA15/PB3/PB4 are GPIO */
+    for (unsigned i = 0; i < NPINS; i++) pin_release(pin_list[i]);
+    DEMCR |= 1u << 24; DWT_CYCCNT = 0; DWT_CTRL |= 1;
+}
+
+static void cmd_pins(void)
+{
+    con_puts("pin float up down class   (internal pulls ~70 kOhm, 2 ms settle)\r\n");
+    for (unsigned i = 0; i < NPINS; i++) {
+        uint8_t pp = pin_list[i];
+        pin_release(pp); delay(30000); int f = pin_read(pp);
+        pin_pull(pp, 1); delay(30000); int u = pin_read(pp);
+        pin_pull(pp, 0); delay(30000); int d = pin_read(pp);
+        pin_release(pp);
+        pin_name(pp); con_puts(" "); con_putc('0' + f); con_puts(" "); con_putc('0' + u); con_puts(" "); con_putc('0' + d);
+        con_puts(u == d ? (u ? " held-high" : " held-low") : (u ? " floating" : " contrary"));
+        con_puts("\r\n");
+    }
+}
+
+static void cmd_activity(void)
+{
+    enum { N = 200000 };
+    uint32_t last[4], cnt[4][16] = {{0}};
+    for (int p = 0; p < 4; p++) last[p] = GPIO_IDT(p);
+    uint32_t t0 = DWT_CYCCNT;
+    for (int k = 0; k < N; k++) {
+        for (int p = 0; p < 4; p++) {
+            uint32_t v = GPIO_IDT(p), x = v ^ last[p]; last[p] = v;
+            while (x) { int b = __builtin_ctz(x); cnt[p][b]++; x &= x - 1; }
+        }
+        if ((k & 1023) == 0) WDT_CMD = 0xAAAA;
+    }
+    uint32_t cycles = DWT_CYCCNT - t0;
+    con_puts("window_us "); con_dec(cycles / 48); con_puts("  samples "); con_dec(N);
+    con_puts("  sample_ns "); con_dec(cycles / (N / 1000) * 1000 / 48 / 1000); con_puts("\r\n");
+    int any = 0;
+    for (unsigned i = 0; i < NPINS; i++) {
+        uint8_t pp = pin_list[i]; uint32_t c = cnt[pp >> 4][pp & 15];
+        if (!c) continue;
+        any = 1; pin_name(pp); con_puts(" edges "); con_dec(c);
+        con_puts(" (~"); con_dec((uint32_t)((uint64_t)c * 24000000ull / cycles)); con_puts(" Hz if a clock)\r\n");
+    }
+    if (!any) con_puts("no pin changed\r\n");
+}
+
+static uint32_t adc_read(int ch)
+{
+    ADC_OSQ1 = 0; ADC_OSQ3 = ch;
+    uint32_t sum = 0;
+    for (int k = 0; k < 16; k++) {
+        ADC_STS = 0;
+        ADC_CTRL2 |= 1u << 22;                          /* software trigger */
+        for (uint32_t t = 0; !(ADC_STS & 2) && t < 100000; t++) ;
+        sum += ADC_ODT & 0xFFF;
+    }
+    return sum / 16;
+}
+
+static void cmd_adc(void)
+{
+    static const uint8_t apins[] = { 0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07, 0x10,0x11 };
+    ADC_SPT1 = 0x00FFFFFF; ADC_SPT2 = 0x3FFFFFFF;       /* longest sample time everywhere */
+    ADC_CTRL2 = (7u << 17) | (1u << 20) | (1u << 23) | 1u;   /* software trigger, VINTRV on, ADC on */
+    delay(5000);
+    ADC_CTRL2 |= 1u << 3; for (uint32_t t = 0; (ADC_CTRL2 & 8) && t < 100000; t++) ;
+    ADC_CTRL2 |= 1u << 2; for (uint32_t t = 0; (ADC_CTRL2 & 4) && t < 100000; t++) ;
+    uint32_t vref = adc_read(17);
+    uint32_t vdda = vref ? 1200u * 4095u / vref : 0;     /* VINTRV typ 1.20 V */
+    con_puts("vintrv_raw "); con_dec(vref); con_puts("  vdda_mv "); con_dec(vdda); con_puts("\r\n");
+    con_puts("pin ch mv_after_pullup mv_after_pulldown  (same: driven; different: floating)\r\n");
+    for (unsigned i = 0; i < sizeof apins; i++) {
+        uint8_t pp = apins[i]; int ch = i < 8 ? (int)i : 8 + (int)(i - 8);
+        uint32_t mv[2];
+        for (int up = 1; up >= 0; up--) {
+            pin_pull(pp, up); delay(30000);            /* charge the pin through the internal pull */
+            pin_cfg(pp, 0); delay(300);                /* analog, then read soon after */
+            mv[1 - up] = adc_read(ch) * vdda / 4095;
+        }
+        pin_release(pp);
+        pin_name(pp); con_puts(" ch"); con_dec(ch); con_puts(" "); con_dec(mv[0]); con_puts(" "); con_dec(mv[1]);
+        int diff = (int)mv[0] - (int)mv[1];
+        con_puts(diff > 200 || diff < -200 ? " floating\r\n" : " driven\r\n");
+    }
+    ADC_CTRL2 = 0;
+}
+
 static int streq(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return *a == *b; }
 
 static void command(char *line)
@@ -370,7 +514,7 @@ static void command(char *line)
         con_puts("\r\nseries 0x"); con_hex(UID(2) >> 24, 2);
         con_puts("\r\naccess_protection "); con_puts(usd & 2 ? "on" : "off");
         con_puts("\r\nusd 0x"); con_hex(usd, 8);
-        con_puts("\r\nprobe stage0 " __DATE__ " " __TIME__ "\r\n");
+        con_puts("\r\nprobe stage1 " __DATE__ " " __TIME__ "\r\n");
     } else if (streq(line, "bootloader")) {
         con_puts("asking the bootloader for update mode; jog-at-power-on if this comes back\r\n");
         for (int i = 0; i < 20000; i++) usb_poll(), tx_kick();
@@ -381,8 +525,14 @@ static void command(char *line)
     } else if (streq(line, "reset")) {
         USB_CTRL = 0x0003;
         SCB_AIRCR = 0x05FA0004;
+    } else if (streq(line, "pins")) {
+        cmd_pins();
+    } else if (streq(line, "activity")) {
+        cmd_activity();
+    } else if (streq(line, "adc")) {
+        cmd_adc();
     } else if (streq(line, "help")) {
-        con_puts("id | bootloader | reset | help\r\n");
+        con_puts("id | pins | activity | adc | bootloader | reset | help\r\n");
     } else {
         con_puts("error: unknown command; help lists them\r\n");
     }
@@ -392,6 +542,7 @@ static void command(char *line)
 int main(void)
 {
     system_init();
+    gpio_init();
     CRM_APB1EN |= 1u << 23;                            /* USB clock */
     CRM_APB2EN |= 1u << 22;                            /* ACC clock */
     USB_CFG = 0x0002;                                  /* D+ pull-up off: host sees a disconnect */

@@ -55,6 +55,40 @@ switching for S11 and S21.
   (power on with the jog held) also works. So the loop flash → test →
   `bootloader` → flash stock runs from the bench host.
 
+## Stage 1 results: every pin as an input (2026-11-10)
+
+Probe stage 1 (`pins`, `activity`, `adc`) on the bench LiteVNA 64. Nothing was
+driven: pins were only floating, pulled (internal ~70 kOhm) or analog inputs.
+PA11/PA12 (USB) and PA13/PA14 (SWD) were left alone; JTAG was released so
+PA15/PB3/PB4 read as GPIO.
+
+**Digital (read floating, with pull-up, with pull-down):**
+
+| Pins | Result | Reading (hypothesis, to be tested) |
+|---|---|---|
+| PB10, PB11 | held high | Pull-ups: I2C2 SCL/SDA, likely the MS5351M bus |
+| PB8 | held high | Pull-up: an interrupt line (the V2 used PB8 for the touch controller's PENIRQ) |
+| PA0 | held high (1.5 V, see ADC) | Analog: biased signal into ADC ch0 |
+| PA5, PB2 | held low | PB2 is BOOT1; PA5 tied low |
+| PC14, PC15 | held low | 32 kHz crystal pins (LEXT) |
+| PD0, PD1 | read 0 | Main crystal pins; not GPIO without remap, not interpreted |
+| all others | follow the pull | Floating at rest: driven only when the firmware drives them (chip selects, SPI, switch controls, LCD) |
+
+**Activity:** with every pin a floating input, no pin changed in 337 ms
+(200,000 samples, 1.7 us apart): nothing on the board clocks or signals the MCU
+unprompted.
+
+**Analog (VDDA 3.02 V from VINTRV; each pin charged high, then low, before the
+reading):**
+
+| Pin | After pull-up / pull-down | Reading |
+|---|---|---|
+| PA0 (ch0) | 1606 / 1460 mV | Driven near VDDA/2: op-amp (GS8722) output biased for the ADC; ch0 is the V2's receive channel |
+| PA5 (ch5) | 0 / 0 mV | Tied to ground |
+| PB0 (ch8) | 1465 / 1738 mV | Held near 1.6 V through a resistance (a divider) |
+| PB1 (ch9) | 2908 / 1931 mV | Weakly held near 2 V: consistent with a high-resistance divider on the 3.97 V battery |
+| PA1-PA4, PA6, PA7 | follow the charge | Floating or high impedance at rest |
+
 ## Recovery
 
 1. Our firmware's `bootloader` command, or power on with the jog held.
@@ -64,8 +98,6 @@ switching for S11 and S21.
 
 ## Next
 
-- Stage 1 (inputs only): classify every pin by reading it with pull-up and
-  pull-down (driven, pulled, floating), and the ADC channels' idle levels.
-  Results go to the maintainer before any pin is driven.
+- Stage 1 (inputs only): done, results above.
 - Then, with approval: I2C scan for the MS5351 (address 0x60), SPI to the
   MAX2871 and the display, the RF switch lines.

@@ -31,7 +31,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | Stage | State |
 |---|---|
 | 0: our firmware runs, USB console, chip identity, return to bootloader | Done on a LiteVNA 64 |
-| 1: classify every pin, inputs only | Next |
+| 1: classify every pin, inputs only | Done (see NOTES.md) |
 | Later: synthesizers, RF switches, ADC, sweeps, calibration, console API | Planned |
 
 ## Build and flash

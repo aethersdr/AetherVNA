@@ -1,6 +1,7 @@
 /*
  * LiteVNA probe firmware, stage 1: our own code runs, USB enumerates, and
- * every pin is classified as an input. No pin is ever driven.
+ * every pin is classified as an input. Only i2cscan drives pins, and only
+ * open-drain low on PB10/PB11 (approved by the maintainer).
  *
  * Copyright (C) 2026 the AetherSDR project
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -15,6 +16,7 @@
  *   pins        each GPIO read floating, with pull-up and with pull-down
  *   activity    which pins change while all are floating inputs
  *   adc         idle voltage on the analog-capable pins (PA0-PA7, PB0, PB1)
+ *   i2cscan     I2C address scan on PB10/PB11 (open-drain only, read probes)
  *   bootloader  ask the bootloader to stay in update mode, then reset
  *   reset       software reset
  *   help
@@ -78,7 +80,7 @@ static void start(void);
 __attribute__((naked, noreturn)) void reset_handler(void)
 {
     /* assume nothing about the handover: interrupts off, our own stack */
-    __asm volatile("cpsid i\n ldr r0, =_estack\n msr msp, r0\n b start\n");
+    __asm volatile("cpsid i\n movw r0, #:lower16:_estack\n movt r0, #:upper16:_estack\n msr msp, r0\n b start\n");
 }
 
 __attribute__((noreturn, used)) static void start(void)
@@ -502,6 +504,71 @@ static void cmd_adc(void)
     ADC_CTRL2 = 0;
 }
 
+/* ---- stage 2a: I2C address scan on PB10/PB11, open-drain only ---- */
+/* Open-drain output: writing 1 releases the line (the board's pull-up takes it
+ * high), writing 0 pulls it low. The pins are never driven high. Each address
+ * gets a read probe that is NACKed at once, so no register is written. */
+static uint8_t i2c_scl, i2c_sda;
+static void od_set(uint8_t pp, int high)
+{
+    int p = pp >> 4, n = pp & 15;
+    if (high) GPIO_ODT(p) |= 1u << n; else GPIO_ODT(p) &= ~(1u << n);
+}
+static void od_mode(uint8_t pp) { od_set(pp, 1); pin_cfg(pp, 0x6); }   /* output 2 MHz, open-drain, released */
+#define I2C_HALF() delay(60)                             /* ~100 kHz */
+static int scl_high(void)
+{
+    od_set(i2c_scl, 1);
+    for (int t = 0; t < 2000; t++) { if (pin_read(i2c_scl)) return 1; delay(10); }
+    return 0;                                            /* held low: clock stretching or stuck */
+}
+static void i2c_start(void) { od_set(i2c_sda, 1); scl_high(); I2C_HALF(); od_set(i2c_sda, 0); I2C_HALF(); od_set(i2c_scl, 0); I2C_HALF(); }
+static void i2c_stop(void)  { od_set(i2c_sda, 0); I2C_HALF(); scl_high(); I2C_HALF(); od_set(i2c_sda, 1); I2C_HALF(); }
+static int i2c_bit_out(int b)                            /* returns the bit read back on SCL high */
+{
+    od_set(i2c_sda, b); I2C_HALF();
+    scl_high(); I2C_HALF();
+    int r = pin_read(i2c_sda);
+    od_set(i2c_scl, 0); I2C_HALF();
+    return r;
+}
+static int i2c_probe_read(uint8_t addr)                 /* 1 if ACKed */
+{
+    i2c_start();
+    for (int i = 7; i >= 0; i--) i2c_bit_out(((addr << 1) | 1) >> i & 1);
+    int ack = !i2c_bit_out(1);                           /* release SDA, sample ACK */
+    if (ack) { for (int i = 0; i < 8; i++) i2c_bit_out(1); i2c_bit_out(1); }  /* read a byte, NACK it */
+    i2c_stop();
+    return ack;
+}
+static void i2c_scan_one(uint8_t scl, uint8_t sda)
+{
+    i2c_scl = scl; i2c_sda = sda;
+    od_mode(scl); od_mode(sda); delay(3000);
+    con_puts("SCL="); pin_name(scl); con_puts(" SDA="); pin_name(sda);
+    if (!pin_read(sda) || !pin_read(scl)) {
+        con_puts(": a line is low at idle; clocking 9 times to free it\r\n");
+        for (int i = 0; i < 9; i++) { od_set(scl, 0); I2C_HALF(); scl_high(); I2C_HALF(); }
+        i2c_stop();
+        if (!pin_read(sda) || !pin_read(scl)) { con_puts("  still low, skipped\r\n"); goto out; }
+    }
+    con_puts(": answering");
+    int found = 0;
+    for (uint8_t a = 0x08; a < 0x78; a++) {
+        WDT_CMD = 0xAAAA;
+        if (i2c_probe_read(a)) { con_puts(" 0x"); con_hex(a, 2); found++; }
+    }
+    if (!found) con_puts(" none");
+    con_puts("\r\n");
+out:
+    pin_release(scl); pin_release(sda);
+}
+static void cmd_i2cscan(void)
+{
+    i2c_scan_one(0x1A, 0x1B);                            /* PB10 SCL, PB11 SDA: the I2C2 default */
+    i2c_scan_one(0x1B, 0x1A);                            /* and swapped */
+}
+
 static int streq(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return *a == *b; }
 
 static void command(char *line)
@@ -531,8 +598,10 @@ static void command(char *line)
         cmd_activity();
     } else if (streq(line, "adc")) {
         cmd_adc();
+    } else if (streq(line, "i2cscan")) {
+        cmd_i2cscan();
     } else if (streq(line, "help")) {
-        con_puts("id | pins | activity | adc | bootloader | reset | help\r\n");
+        con_puts("id | pins | activity | adc | i2cscan | bootloader | reset | help\r\n");
     } else {
         con_puts("error: unknown command; help lists them\r\n");
     }

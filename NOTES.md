@@ -89,6 +89,20 @@ reading):**
 | PB1 (ch9) | 2908 / 1931 mV | Weakly held near 2 V: consistent with a high-resistance divider on the 3.97 V battery |
 | PA1-PA4, PA6, PA7 | follow the charge | Floating or high impedance at rest |
 
+## Stage 2a: I2C scan (approved, 2026-11-10)
+
+`i2cscan`: software I2C on PB10/PB11, open-drain only (lines pulled low or
+released, never driven high), ~100 kHz, an address-only read probe per address,
+NACKed at once, so no register is written.
+
+| Wiring | Answering |
+|---|---|
+| SCL = PB10, SDA = PB11 (I2C2's own pins) | **0x60**: the MS5351M's address |
+| swapped | none |
+
+So the MS5351M is on I2C2, SCL PB10, SDA PB11, with board pull-ups; nothing
+else is on that bus. Both lines read pulled-high again afterwards.
+
 ## Recovery
 
 1. Our firmware's `bootloader` command, or power on with the jog held.
@@ -99,5 +113,7 @@ reading):**
 ## Next
 
 - Stage 1 (inputs only): done, results above.
-- Then, with approval: I2C scan for the MS5351 (address 0x60), SPI to the
-  MAX2871 and the display, the RF switch lines.
+- Stage 2a (I2C scan): done, MS5351M at 0x60 on PB10/PB11.
+- Next, each with approval: reading the MS5351M's status register; finding
+  the MAX2871's SPI lines (it has a readback through MUXOUT); the display and
+  touch controller; the RF switch lines.

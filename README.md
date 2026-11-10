@@ -32,6 +32,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 |---|---|
 | 0: our firmware runs, USB console, chip identity, return to bootloader | Done on a LiteVNA 64 |
 | 1: classify every pin, inputs only | Done (see NOTES.md) |
+| 2a: I2C scan (open-drain): MS5351M at 0x60 on PB10/PB11 | Done |
 | Later: synthesizers, RF switches, ADC, sweeps, calibration, console API | Planned |
 
 ## Build and flash

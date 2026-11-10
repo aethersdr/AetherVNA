@@ -782,6 +782,84 @@ static void cmd_lcdfill(int bl_level, uint16_t colour)
     con_puts("filled; backlight candidates left driven, display pins left driven\r\n");
 }
 
+/* RF search for the MAX2871 bus (approved). For pair k, clock the datasheet
+ * start-up sequence (registers 5..0, twice, 20 ms apart) on (CLK, DATA) and
+ * pulse every other candidate high together as LE; they stay high afterwards,
+ * which also holds CE and RFOUT_EN if the MCU drives them. Words: int-N, R=1,
+ * N=100, output A divided by 16 at +5 dBm, so any VCO frequency lands between
+ * about 187 and 375 MHz. A spectrum analyzer on a port looks for the carrier.
+ * Excluded: PA0 (receive ADC), PA5 (backlight), PB1/PB13 (jog), PB4 (touch
+ * MISO), PB8 (touch IRQ), PB10/PB11 (I2C), USB and SWD pins. */
+static const uint8_t rf_cand[] = { 0x01,0x02,0x03,0x04,0x06,0x07,0x08,0x09,0x0A, 0x19,0x1C,0x1E,0x1F,0x2D,
+                                   0x10,0x12,0x2E,0x2F, 0x13,0x15 };
+static const uint8_t rf_le_extra[] = { 0x0F, 0x16, 0x17 };   /* display CS, D/C, touch CS */
+#define NRF (sizeof rf_cand)
+static void rf_group(uint8_t clk, uint8_t data, int level)
+{
+    for (unsigned i = 0; i < NRF; i++) if (rf_cand[i] != clk && rf_cand[i] != data) pin_set(rf_cand[i], level);
+    for (unsigned i = 0; i < sizeof rf_le_extra; i++) pin_set(rf_le_extra[i], level);
+}
+static void rf_word(uint8_t clk, uint8_t data, uint32_t w)
+{
+    rf_group(clk, data, 0); pin_set(clk, 0); SPI_DLY();
+    for (int i = 31; i >= 0; i--) { pin_set(data, w >> i & 1); SPI_DLY(); pin_set(clk, 1); SPI_DLY(); pin_set(clk, 0); SPI_DLY(); }
+    rf_group(clk, data, 1); SPI_DLY();                  /* LE rising on every candidate */
+}
+static void cmd_synthrf(int k)
+{
+    static const uint32_t regs[6] = { 0x00400005u, 0x61C0B23Cu, 0x0000000Bu, 0x00004142u, 0x2000FFF9u,
+                                      0x80000000u | (100u << 15) };
+    int n = 0;
+    for (unsigned c = 0; c < NRF; c++) for (unsigned d = 0; d < NRF; d++) {
+        if (c == d) continue;
+        if (n++ != k) continue;
+        uint8_t clk = rf_cand[c], data = rf_cand[d];
+        for (unsigned i = 0; i < NRF; i++) pp_out(rf_cand[i], 0);
+        for (unsigned i = 0; i < sizeof rf_le_extra; i++) pp_out(rf_le_extra[i], 0);
+        for (int pass = 0; pass < 2; pass++) {
+            rf_word(clk, data, regs[0]); delay(250000);   /* register 5, then 20 ms */
+            for (int r = 1; r < 6; r++) rf_word(clk, data, regs[r]);
+            delay(250000);
+        }
+        con_puts("pair "); con_dec(k); con_puts(" CLK="); pin_name(clk); con_puts(" DATA="); pin_name(data);
+        con_puts(" programmed\r\n");
+        return;
+    }
+    con_puts("pairs: 0.."); con_dec(n - 1); con_puts("\r\n");
+}
+/* Explicit wiring: clk, data, le as pin codes (port*16+pin); le 255 = every
+ * other candidate together. N sets the VCO multiple. Other candidates are held
+ * high throughout (CE, RFOUT_EN if MCU-driven); only LE toggles. */
+static void rf_word_le(uint8_t clk, uint8_t data, uint8_t le, uint32_t w)
+{
+    if (le == 255) { rf_word(clk, data, w); return; }
+    pin_set(le, 0); pin_set(clk, 0); SPI_DLY();
+    for (int i = 31; i >= 0; i--) { pin_set(data, w >> i & 1); SPI_DLY(); pin_set(clk, 1); SPI_DLY(); pin_set(clk, 0); SPI_DLY(); }
+    pin_set(le, 1); SPI_DLY();
+}
+static void cmd_rfprog(int clk, int data, int le, int n)
+{
+    uint32_t regs[6] = { 0x00400005u, 0x61C0B23Cu, 0x0000000Bu, 0x00004142u, 0x2000FFF9u,
+                         0x80000000u | ((uint32_t)n << 15) };
+    for (unsigned i = 0; i < NRF; i++) pp_out(rf_cand[i], 1);           /* everything high */
+    for (unsigned i = 0; i < sizeof rf_le_extra; i++) pp_out(rf_le_extra[i], 1);
+    pp_out(clk, 0); pp_out(data, 0); if (le != 255) pp_out(le, 0);
+    for (int pass = 0; pass < 2; pass++) {
+        rf_word_le(clk, data, le, regs[0]); delay(250000);
+        for (int r = 1; r < 6; r++) rf_word_le(clk, data, le, regs[r]);
+        delay(250000);
+    }
+    con_puts("CLK="); pin_name(clk); con_puts(" DATA="); pin_name(data); con_puts(" LE=");
+    if (le == 255) con_puts("group"); else pin_name(le);
+    con_puts(" N="); con_dec(n); con_puts("\r\n");
+}
+
+static void cmd_rfrelease(void)
+{
+    for (unsigned i = 0; i < NRF; i++) pin_release(rf_cand[i]);
+    for (unsigned i = 0; i < sizeof rf_le_extra; i++) pin_release(rf_le_extra[i]);
+}
+
 /* Buttons: every floating pin with a pull-up, watched for 10 s while the user
  * presses the jog left, right and in. */
 static void cmd_buttons(void)
@@ -845,6 +923,15 @@ done:
 }
 
 static int streq(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return *a == *b; }
+static int prefix_num(const char *line, const char *word, int *num)
+{
+    while (*word) if (*line++ != *word++) return 0;
+    if (*line != ' ') return 0;
+    int v = 0, any = 0; line++;
+    while (*line >= '0' && *line <= '9') { v = v * 10 + (*line++ - '0'); any = 1; }
+    if (!any || *line) return 0;
+    *num = v; return 1;
+}
 
 static void command(char *line)
 {
@@ -885,6 +972,16 @@ static void command(char *line)
         cmd_lcdid();
     } else if (streq(line, "buttons")) {
         cmd_buttons();
+    } else if (prefix_num(line, "synthrf", &(int){0})) {
+        int k = 0; prefix_num(line, "synthrf", &k); cmd_synthrf(k);
+    } else if (streq(line, "synthrf")) {
+        cmd_synthrf(-1);
+    } else if (line[0] == 'r' && line[1] == 'f' && line[2] == 'p' && line[3] == 'r' && line[4] == 'o' && line[5] == 'g' && line[6] == ' ') {
+        int v[4] = {0}, nv = 0; const char *q = line + 7;
+        while (*q && nv < 4) { while (*q == ' ') q++; int x = 0, any = 0; while (*q >= '0' && *q <= '9') { x = x * 10 + (*q++ - '0'); any = 1; } if (!any) break; v[nv++] = x; }
+        if (nv == 4) cmd_rfprog(v[0], v[1], v[2], v[3]); else con_puts("usage: rfprog clk data le n (pin codes port*16+pin; le 255 = group)\r\n");
+    } else if (streq(line, "rfrelease")) {
+        cmd_rfrelease(); con_puts("released\r\n");
     } else if (streq(line, "lcdred")) {
         cmd_lcdfill(1, 0xF800);
     } else if (streq(line, "pa5high")) {
@@ -896,7 +993,7 @@ static void command(char *line)
     } else if (streq(line, "jog")) {
         cmd_jog();
     } else if (streq(line, "help")) {
-        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | bootloader | reset | help\r\n");
+        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | synthrf [k] | rfprog c d le n | rfrelease | bootloader | reset | help\r\n");
     } else {
         con_puts("error: unknown command; help lists them\r\n");
     }

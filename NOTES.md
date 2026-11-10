@@ -167,6 +167,31 @@ with a spectrum analyzer.
   commands, and keep hands off the jog during reboots. Holding the jog IN
   while powering on still gives Zeenko's bootloader.
 
+## Stage 2d: MAX2871 by its RF output, first attempt (approved, 2026-11-10)
+
+Setup: LiteVNA port 1 to the tinySA Ultra+ RF input, tinySA at 10 dB
+attenuation (the strongest possible source is the MAX2871's +5 dBm), scans
+150-420 MHz (450 points, 850 kHz RBW). `synthrf k` clocks the datasheet
+start-up sequence (registers 5..0 twice, int-N, R=1, N=100, output A /16 at
++5 dBm) on candidate pair k as (CLK, DATA), pulsing every other candidate high
+together as LE and leaving them high (CE, RFOUT_EN if MCU-driven).
+
+- **Carriers appear:** 24 dB over baseline at 172.85 MHz (-56.7 dBm) after
+  pair 20 (CLK PA2, DATA PA3) in the search; 30.5 dB at 401.96 MHz
+  (-50.5 dBm) after pair 21 (CLK PA2, DATA PA4) in a replay. So our pin
+  activity can wake the MAX2871 and its output reaches port 1.
+- **Not attributable:** neither pair reproduces it on its own (`rfprog` with
+  the same pins and N = 90, 100, 110, 120 shows nothing above the 5-8 dB scan
+  noise), and replaying pairs 13-20 did not reproduce the first hit. The
+  method is confounded: the "LE group" includes every non-(CLK, DATA)
+  candidate, so the real CLK and DATA, if among them, are toggled too and
+  shift partial words into the chip; each result depends on earlier tests.
+- **Next design:** start from a known chip state (power cycle with the probe
+  installed), hold every candidate static, and change one role at a time; or
+  record the exact pin history around a hit and bisect it. Find the reference
+  frequency first so a correct wiring gives a locked, predictable carrier
+  (N x fREF / 16) instead of a free-running VCO.
+
 ## Recovery
 
 1. Our firmware's `bootloader` command, or power on with the jog held.
@@ -180,5 +205,5 @@ with a spectrum analyzer.
 - Stage 2a (I2C scan): done, MS5351M at 0x60 on PB10/PB11.
 - Stage 2c: touch, display, backlight and jog mapped; MAX2871 not found by
   MUX/LD response.
-- Next: find the MAX2871 bus by its RF output (spectrum analyzer on a port),
-  then the RF switch lines (which paths a test tone reaches).
+- Stage 2d: MAX2871 carriers seen at port 1 but not yet attributable to a
+  wiring; see above for the next design. Then the RF switch lines.

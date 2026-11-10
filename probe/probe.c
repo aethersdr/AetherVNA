@@ -837,13 +837,23 @@ static void rf_word_le(uint8_t clk, uint8_t data, uint8_t le, uint32_t w)
     for (int i = 31; i >= 0; i--) { pin_set(data, w >> i & 1); SPI_DLY(); pin_set(clk, 1); SPI_DLY(); pin_set(clk, 0); SPI_DLY(); }
     pin_set(le, 1); SPI_DLY();
 }
+static int rf_keep_others;
 static void cmd_rfprog(int clk, int data, int le, int n)
 {
     uint32_t regs[6] = { 0x00400005u, 0x61C0B23Cu, 0x0000000Bu, 0x00004142u, 0x2000FFF9u,
                          0x80000000u | ((uint32_t)n << 15) };
-    for (unsigned i = 0; i < NRF; i++) pp_out(rf_cand[i], 1);           /* everything high */
-    for (unsigned i = 0; i < sizeof rf_le_extra; i++) pp_out(rf_le_extra[i], 1);
+    if (!rf_keep_others) {
+        for (unsigned i = 0; i < NRF; i++) pp_out(rf_cand[i], 1);       /* everything high */
+        for (unsigned i = 0; i < sizeof rf_le_extra; i++) pp_out(rf_le_extra[i], 1);
+    }
     pp_out(clk, 0); pp_out(data, 0); if (le != 255) pp_out(le, 0);
+    if (n == 0) {                                      /* off: RF output A disabled, then shutdown */
+        rf_word_le(clk, data, le, 0x61C0B21Cu);        /* register 4 with RFA_EN = 0 */
+        rf_word_le(clk, data, le, 0x00004142u | (1u << 5));   /* register 2 with SHDN = 1 */
+        con_puts("off words sent via CLK="); pin_name(clk); con_puts(" DATA="); pin_name(data);
+        con_puts(" LE="); if (le == 255) con_puts("group"); else pin_name(le); con_puts("\r\n");
+        return;
+    }
     for (int pass = 0; pass < 2; pass++) {
         rf_word_le(clk, data, le, regs[0]); delay(250000);
         for (int r = 1; r < 6; r++) rf_word_le(clk, data, le, regs[r]);
@@ -980,6 +990,18 @@ static void command(char *line)
         int v[4] = {0}, nv = 0; const char *q = line + 7;
         while (*q && nv < 4) { while (*q == ' ') q++; int x = 0, any = 0; while (*q >= '0' && *q <= '9') { x = x * 10 + (*q++ - '0'); any = 1; } if (!any) break; v[nv++] = x; }
         if (nv == 4) cmd_rfprog(v[0], v[1], v[2], v[3]); else con_puts("usage: rfprog clk data le n (pin codes port*16+pin; le 255 = group)\r\n");
+    } else if (line[0] == 'p' && line[1] == 'i' && line[2] == 'n' && line[3] == ' ') {
+        /* pin <code> <0|1|r>: drive push-pull low/high, or release to floating input */
+        const char *q = line + 4; int c = 0, any = 0;
+        while (*q >= '0' && *q <= '9') { c = c * 10 + (*q++ - '0'); any = 1; }
+        if (any && *q == ' ' && (q[1] == '0' || q[1] == '1' || q[1] == 'r') && !q[2] && c < 64 && c != 0x0B && c != 0x0C && c != 0x0D && c != 0x0E) {
+            if (q[1] == 'r') pin_release(c); else pp_out(c, q[1] - '0');
+            pin_name(c); con_puts(q[1] == 'r' ? " released\r\n" : (q[1] == '1' ? " high\r\n" : " low\r\n"));
+        } else con_puts("usage: pin <port*16+pin> <0|1|r> (USB and SWD pins refused)\r\n");
+    } else if (streq(line, "keepothers on")) {
+        rf_keep_others = 1; con_puts("rfprog leaves other pins as they are\r\n");
+    } else if (streq(line, "keepothers off")) {
+        rf_keep_others = 0; con_puts("rfprog drives other candidates high\r\n");
     } else if (streq(line, "rfrelease")) {
         cmd_rfrelease(); con_puts("released\r\n");
     } else if (streq(line, "lcdred")) {
@@ -993,7 +1015,7 @@ static void command(char *line)
     } else if (streq(line, "jog")) {
         cmd_jog();
     } else if (streq(line, "help")) {
-        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | synthrf [k] | rfprog c d le n | rfrelease | bootloader | reset | help\r\n");
+        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | synthrf [k] | rfprog c d le n | rfrelease | pin c 0|1|r | bootloader | reset | help\r\n");
     } else {
         con_puts("error: unknown command; help lists them\r\n");
     }

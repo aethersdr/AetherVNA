@@ -192,6 +192,31 @@ together as LE and leaving them high (CE, RFOUT_EN if MCU-driven).
   frequency first so a correct wiring gives a locked, predictable carrier
   (N x fREF / 16) instead of a free-running VCO.
 
+## Stage 2e: MAX2871 bus found, reference 24 MHz, stimulus switches (2026-11-10)
+
+Clean method (after the confounded attempt in 2d): only the three tested pins
+move; every other candidate is held static.
+
+- The carrier in 2d came from programming, not from pin levels: with no words
+  sent, no combination of static levels (all high, all low, PA2/PA3/PA4 low)
+  produced it. Once loaded, the chip kept it, which is why every later test
+  showed it.
+- **LE found by turning the carrier off:** with the carrier on, the "off"
+  words (register 4 with RFA_EN = 0, register 2 with SHDN = 1) were sent
+  through each LE candidate in turn; only **PA1** switched it off. Off via
+  LE = PA4 left it on; off via DATA = PA4 left it on; via DATA = PA3 it went off.
+- **MAX2871 bus: CLK PA2, DATA PA3, LE PA1.** CE and RFOUT_EN are not MCU pins:
+  the carrier appears with every pin but PA1-PA3 floating.
+- **Reference 24.000 MHz:** int-N, R = 1, output A / 16: N = 150 gives
+  225.0000 MHz and N = 200 gives 300.0000 MHz (tinySA, 3 kHz RBW), so the PLL
+  locks and fREF = 24.000 MHz. Below N = 120 the VCO stays at its lower limit
+  (172.78 MHz x 16 = 2.765 GHz).
+- **Stimulus path (225 MHz tone at port 1, tinySA at 10 dB attenuation):**
+  with every other pin floating the tone is -55.3 dBm. **PA6 low: -5.3 dBm**
+  (+50 dB: the synthesizer is routed to port 1). **PA8 low: -79.3 dBm**
+  (-25 dB). No other candidate changes it, low or high. Receive-side switch
+  lines need the receive chain to find.
+
 ## Recovery
 
 1. Our firmware's `bootloader` command, or power on with the jog held.
@@ -205,5 +230,6 @@ together as LE and leaving them high (CE, RFOUT_EN if MCU-driven).
 - Stage 2a (I2C scan): done, MS5351M at 0x60 on PB10/PB11.
 - Stage 2c: touch, display, backlight and jog mapped; MAX2871 not found by
   MUX/LD response.
-- Stage 2d: MAX2871 carriers seen at port 1 but not yet attributable to a
-  wiring; see above for the next design. Then the RF switch lines.
+- Stage 2e: MAX2871 on PA2/PA3/PA1, 24 MHz reference, PA6/PA8 steer the
+  stimulus. Next: the MS5351M's role (low-band stimulus or LO), the receive
+  path into PA0 and its switch lines, then sweeps.

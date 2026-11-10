@@ -131,6 +131,42 @@ So the MS5351M's reference is present and both PLLs lock at power-on. With
 its outputs passing the reference through, `activity` still saw no MCU pin
 change: CLK0-2 go to the RF side, not to the MCU. `pins` matched stage 1.
 
+## Stage 2c: buses found by the chips' own responses (approved, 2026-11-10)
+
+Pins were driven for these tests (maintainer: "do them all"). Pin map so far:
+
+| Function | Pins | How it was established |
+|---|---|---|
+| Touch controller HR2046 | SCK PB3, MISO PB4, MOSI PB5, CS PB7 (IRQ PB8, pulled up) | `touch`: TEMP0 789 and TEMP1 967 counts (~0.60 V and ~0.78 V, TEMP1 > TEMP0 as the TSC2046 datasheet says), VBAT 1299 counts (~4.1 V through its /4 input; stock reported 4.07 V), X/Z1 0 with nothing touching |
+| Display | SCK PB3, MOSI PB5 (shared with touch), CS PA15, D/C PB6; no read-back (ID reads return 0xFF: MISO not driven by the display) | `lcdred`: MIPI-DCS reset, sleep-out, 16-bit pixels, display-on and a solid fill lit the screen. Sent 0xF800 (red in RGB565) shows **blue**: the controller defaults to BGR order |
+| Backlight | **PA5, active high** (board pull-down holds it off) | screen dark with every other candidate driven high or low; lit with PA5 high alone |
+| MS5351M | I2C2: SCL PB10, SDA PB11, address 0x60 | stage 2a/2b |
+| Jog | LEFT pulls **PB1** (analog, ~2.1 V idle) to 0 V; RIGHT drives **PB13** low; IN changed no GPIO | `buttons` and `jog` with the maintainer pressing |
+| Receive ADC | PA0 (ch0), biased near VDDA/2 | stage 1 |
+
+**MAX2871 not found by response.** `synthsearch` tried every (CLK, DATA, LE)
+assignment over 28 candidate pins (all GPIOs except PA0, PA11-PA14), writing
+register 2 (SHDN set, MUX = D_VDD then D_GND) and register 5 (LD pin high
+then low), and watched every pin: none followed. The MAX2871's serial
+interface works in shutdown (datasheet), so the likely reading is that
+neither its MUX nor its LD pin reaches the MCU, as in the open V2 design
+(which waits fixed times instead of reading lock). Finding its bus needs an RF
+method: program a candidate wiring for a known output and look for the carrier
+with a spectrum analyzer.
+
+**Incidents:**
+- With PB10/PB11 among the `synthsearch` candidates, the bit patterns reached
+  the MS5351M as I2C writes: its output-disable register went from 0x00 to
+  0x07. Harmless (a power cycle restores defaults, stock reprograms it), but an
+  unintended write. I2C pins are excluded from future searches.
+- **Holding the jog during a reset starts Artery's ROM bootloader**
+  (USB 2e3c:df11, "AT32 Bootloader DFU"): the maintainer was pressing the jog
+  (left first) when a flash rebooted the unit. Nothing was sent to it; a full
+  power cycle (USB unplugged, switch off) returned to our probe. The ROM
+  bootloader can erase flash including Zeenko's bootloader: never send it
+  commands, and keep hands off the jog during reboots. Holding the jog IN
+  while powering on still gives Zeenko's bootloader.
+
 ## Recovery
 
 1. Our firmware's `bootloader` command, or power on with the jog held.
@@ -142,6 +178,7 @@ change: CLK0-2 go to the RF side, not to the MCU. `pins` matched stage 1.
 
 - Stage 1 (inputs only): done, results above.
 - Stage 2a (I2C scan): done, MS5351M at 0x60 on PB10/PB11.
-- Next, each with approval: reading the MS5351M's status register; finding
-  the MAX2871's SPI lines (it has a readback through MUXOUT); the display and
-  touch controller; the RF switch lines.
+- Stage 2c: touch, display, backlight and jog mapped; MAX2871 not found by
+  MUX/LD response.
+- Next: find the MAX2871 bus by its RF output (spectrum analyzer on a port),
+  then the RF switch lines (which paths a test tone reaches).

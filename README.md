@@ -34,6 +34,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 1: classify every pin, inputs only | Done (see NOTES.md) |
 | 2a: I2C scan (open-drain): MS5351M at 0x60 on PB10/PB11 | Done |
 | 2b: MS5351M registers read at power-on (reference present, PLLs lock) | Done |
+| 2c: touch, display (write-only), backlight PA5, jog mapped; MAX2871 needs an RF method | Done |
 | Later: synthesizers, RF switches, ADC, sweeps, calibration, console API | Planned |
 
 ## Build and flash

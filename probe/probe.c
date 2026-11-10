@@ -18,6 +18,10 @@
  *   adc         idle voltage on the analog-capable pins (PA0-PA7, PB0, PB1)
  *   i2cscan     I2C address scan on PB10/PB11 (open-drain only, read probes)
  *   ms5351      read-only register reads from the MS5351M at 0x60
+ *   synthsearch find the MAX2871's CLK/DATA/LE by its MUX pin's response
+ *   touch       HR2046 conversions on the V2-style SPI pins
+ *   lcdid       display ID reads on the V2-style SPI pins
+ *   buttons     watch pulled-up pins while the jog is pressed
  *   bootloader  ask the bootloader to stay in update mode, then reset
  *   reset       software reset
  *   help
@@ -621,6 +625,225 @@ static void cmd_ms5351(void)
     pin_release(i2c_scl); pin_release(i2c_sda);
 }
 
+/* ---- stage 2c: bus discovery by the chips' own responses (approved) ---- */
+static void pp_out(uint8_t pp, int v) { od_set(pp, v); pin_cfg(pp, 0x2); }  /* push-pull, 2 MHz */
+static void pin_set(uint8_t pp, int v) { od_set(pp, v); }
+#define SPI_DLY() delay(4)
+
+/* MAX2871 (datasheet 19-6604): 32-bit word, MSB first, DATA sampled on CLK
+ * rising, loaded on LE rising. Register 2 keeps its default fields (0x4042:
+ * R=1, PDP=1) plus SHDN=1 so the synthesizer stays shut down; MUX[2:0] in
+ * bits 28:26: 000 three-state, 001 D_VDD, 010 D_GND. */
+static const uint8_t synth_cand[] = { 0x01,0x02,0x03,0x04,0x06,0x07,0x08,0x09,0x0A, 0x19,0x1C,0x1D,0x1E,0x1F, 0x2D,
+                                      0x13,0x14,0x15,0x0F,0x16,0x17, 0x05,0x12,0x2E,0x2F, 0x1A,0x1B,0x18 };
+#define NSC (sizeof synth_cand)
+static void max2871_write(uint8_t clk, uint8_t data, uint8_t le, uint32_t w)
+{
+    pin_set(le, 0); pin_set(clk, 0); SPI_DLY();
+    for (int i = 31; i >= 0; i--) {
+        pin_set(data, w >> i & 1); SPI_DLY();
+        pin_set(clk, 1); SPI_DLY(); pin_set(clk, 0); SPI_DLY();
+    }
+    pin_set(le, 1); SPI_DLY(); pin_set(le, 0); SPI_DLY();
+}
+static uint32_t read_with_pull(int up, const uint8_t *skip, int nskip)   /* bit i set: pin i of the watch list fights the pull */
+{
+    static const uint8_t watch[] = { 0x01,0x02,0x03,0x04,0x06,0x07,0x08,0x09,0x0A,0x19,0x1C,0x1D,0x1E,0x1F,0x2D,
+                                     0x13,0x14,0x15,0x0F,0x16,0x17,0x18,0x05,0x10,0x11,0x12,0x2E,0x2F };
+    uint32_t m = 0;
+    for (unsigned i = 0; i < sizeof watch; i++) {
+        int sk = 0; for (int k = 0; k < nskip; k++) if (skip[k] == watch[i]) sk = 1;
+        if (sk) continue;
+        pin_pull(watch[i], up);
+    }
+    delay(300);
+    for (unsigned i = 0; i < sizeof watch; i++) {
+        int sk = 0; for (int k = 0; k < nskip; k++) if (skip[k] == watch[i]) sk = 1;
+        if (!sk && pin_read(watch[i]) != up) m |= 1u << i;     /* reads against the pull: driven */
+    }
+    return m;
+}
+static void watch_name(int i)
+{
+    static const uint8_t watch[] = { 0x01,0x02,0x03,0x04,0x06,0x07,0x08,0x09,0x0A,0x19,0x1C,0x1D,0x1E,0x1F,0x2D,
+                                     0x13,0x14,0x15,0x0F,0x16,0x17,0x18,0x05,0x10,0x11,0x12,0x2E,0x2F };
+    pin_name(watch[i]);
+}
+static void cmd_synthsearch(void)
+{
+    const uint32_t R2 = 0x00004042u | (1u << 5);       /* defaults + SHDN */
+    int hits = 0;
+    for (unsigned c = 0; c < NSC; c++) for (unsigned d = 0; d < NSC; d++) for (unsigned l = 0; l < NSC; l++) {
+        if (c == d || d == l || c == l) continue;
+        uint8_t clk = synth_cand[c], data = synth_cand[d], le = synth_cand[l], used[3] = { clk, data, le };
+        WDT_CMD = 0xAAAA;
+        pp_out(clk, 0); pp_out(data, 0); pp_out(le, 0);
+        max2871_write(clk, data, le, R2 | (1u << 26));            /* MUX = D_VDD */
+        max2871_write(clk, data, le, 0x00C00005u);                 /* register 5: LD pin = high */
+        uint32_t high = read_with_pull(0, used, 3);                /* reads 1 while pulled down: driven high */
+        max2871_write(clk, data, le, R2 | (2u << 26));            /* MUX = D_GND */
+        max2871_write(clk, data, le, 0x00000005u);                 /* register 5: LD pin = low */
+        uint32_t low = read_with_pull(1, used, 3);                 /* reads 0 while pulled up: driven low */
+        uint32_t both = high & ~0u & low;
+        if (both) {
+            hits++;
+            con_puts("CLK="); pin_name(clk); con_puts(" DATA="); pin_name(data); con_puts(" LE="); pin_name(le);
+            con_puts(" -> MUX/LD follows on");
+            for (int i = 0; i < 28; i++) if (both >> i & 1) { con_puts(" "); watch_name(i); }
+            con_puts("\r\n");
+            max2871_write(clk, data, le, R2);                       /* MUX three-state again */
+            max2871_write(clk, data, le, 0x00400005u);              /* register 5 default: LD = digital lock detect */
+        }
+        for (int k = 0; k < 3; k++) pin_release(used[k]);
+        for (unsigned i = 0; i < NSC; i++) pin_release(synth_cand[i]);
+        static const uint8_t disp[] = { 0x13,0x14,0x15,0x0F,0x16,0x17,0x18 };
+        for (unsigned i = 0; i < sizeof disp; i++) pin_release(disp[i]);
+        if (hits >= 8) { con_puts("stopping after 8 hits\r\n"); return; }
+    }
+    if (!hits) con_puts("no (CLK, DATA, LE) among the candidates makes any pin follow MUX or LD\r\n");
+}
+
+/* Display and touch on the V2-style pins: SCK PB3, MISO PB4, MOSI PB5,
+ * display CS PA15, D/C PB6, touch CS PB7 (SPI mode 0, bit-banged). */
+static const uint8_t SCK = 0x13, MISO = 0x14, MOSI = 0x15, LCS = 0x0F, LDC = 0x16, TCS = 0x17;
+static uint8_t spi_xfer(uint8_t out)
+{
+    uint8_t in = 0;
+    for (int i = 7; i >= 0; i--) {
+        pin_set(MOSI, out >> i & 1); delay(20);
+        pin_set(SCK, 1); delay(20);
+        in = (in << 1) | pin_read(MISO);
+        pin_set(SCK, 0); delay(20);
+    }
+    return in;
+}
+static void spi_pins(int on)
+{
+    if (on) { pp_out(SCK, 0); pp_out(MOSI, 0); pp_out(LCS, 1); pp_out(LDC, 1); pp_out(TCS, 1); pin_pull(MISO, 1); }
+    else { pin_release(SCK); pin_release(MOSI); pin_release(LCS); pin_release(LDC); pin_release(TCS); pin_release(MISO); }
+}
+static void cmd_touch(void)
+{
+    static const struct { uint8_t cmd; const char *name; } ch[] = {
+        { 0x84, "temp0" }, { 0xF4, "temp1" }, { 0xA4, "vbat" }, { 0xE4, "aux" }, { 0xB4, "z1" }, { 0xD4, "x" } };
+    spi_pins(1); delay(1000);
+    for (unsigned i = 0; i < sizeof ch / sizeof ch[0]; i++) {
+        uint32_t sum = 0, raw0 = 0;
+        for (int k = 0; k < 4; k++) {
+            pin_set(TCS, 0); delay(50);
+            spi_xfer(ch[i].cmd); delay(200);
+            uint8_t a = spi_xfer(0), b = spi_xfer(0);
+            pin_set(TCS, 1); delay(200);
+            uint32_t v = ((a << 8 | b) >> 3) & 0xFFF; sum += v; if (!k) raw0 = a << 8 | b;
+        }
+        con_puts(ch[i].name); con_puts(" "); con_dec(sum / 4); con_puts(" (raw 0x"); con_hex(raw0, 4); con_puts(")\r\n");
+    }
+    spi_pins(0);
+}
+static void cmd_lcdid(void)
+{
+    static const uint8_t cmds[] = { 0x04, 0xD3, 0xDA, 0xDB, 0xDC, 0x09 };
+    spi_pins(1); delay(1000);
+    for (unsigned i = 0; i < sizeof cmds; i++) {
+        pin_set(LCS, 0); delay(50);
+        pin_set(LDC, 0); spi_xfer(cmds[i]); pin_set(LDC, 1);
+        uint8_t r[5]; for (int k = 0; k < 5; k++) r[k] = spi_xfer(0);
+        pin_set(LCS, 1); delay(200);
+        con_puts("cmd 0x"); con_hex(cmds[i], 2); con_puts(":");
+        for (int k = 0; k < 5; k++) { con_puts(" "); con_hex(r[k], 2); }
+        con_puts("\r\n");
+    }
+    spi_pins(0);
+}
+
+/* Display write test: no read-back on this board, so the result is seen on the
+ * screen. Backlight enable unknown: the floating non-bus pins listed in bl_pins
+ * are driven high (or low) first. Generic MIPI-DCS wake and a solid fill. */
+static const uint8_t bl_pins[] = { 0x01,0x02,0x03,0x04,0x06,0x07,0x08,0x09,0x0A,0x19,0x1C,0x1E,0x1F,0x2D };
+static void lcd_cmd(uint8_t c) { pin_set(LCS, 0); pin_set(LDC, 0); spi_xfer(c); pin_set(LDC, 1); pin_set(LCS, 1); }
+static void lcd_data(const uint8_t *d, int n) { pin_set(LCS, 0); pin_set(LDC, 1); for (int i = 0; i < n; i++) spi_xfer(d[i]); pin_set(LCS, 1); }
+static void cmd_lcdfill(int bl_level, uint16_t colour)
+{
+    for (unsigned i = 0; i < sizeof bl_pins; i++) pp_out(bl_pins[i], bl_level);
+    spi_pins(1); delay(1000);
+    lcd_cmd(0x01); delay(2000000);                     /* software reset, ~150 ms */
+    lcd_cmd(0x11); delay(2000000);                     /* sleep out */
+    static const uint8_t pix[] = { 0x55 }; lcd_cmd(0x3A); lcd_data(pix, 1);   /* 16 bits per pixel */
+    lcd_cmd(0x29);                                     /* display on */
+    static const uint8_t ca[] = { 0, 0, 0x01, 0xDF }, ra[] = { 0, 0, 0x01, 0xDF };
+    lcd_cmd(0x2A); lcd_data(ca, 4); lcd_cmd(0x2B); lcd_data(ra, 4);
+    lcd_cmd(0x2C);
+    pin_set(LCS, 0); pin_set(LDC, 1);
+    for (uint32_t px = 0; px < 480u * 480u; px++) {
+        spi_xfer(colour >> 8); spi_xfer(colour & 0xFF);
+        if ((px & 1023) == 0) { WDT_CMD = 0xAAAA; usb_poll(); tx_kick(); }
+    }
+    pin_set(LCS, 1);
+    con_puts("filled; backlight candidates left driven, display pins left driven\r\n");
+}
+
+/* Buttons: every floating pin with a pull-up, watched for 10 s while the user
+ * presses the jog left, right and in. */
+static void cmd_buttons(void)
+{
+    uint32_t base[4], seen[4] = {0};
+    for (unsigned i = 0; i < NPINS; i++) {
+        uint8_t pp = pin_list[i];
+        if (pp == 0x00 || pp == 0x1A || pp == 0x1B || pp == 0x18) continue;    /* PA0 analog, I2C, PB8 */
+        pin_pull(pp, 1);
+    }
+    delay(30000);
+    for (int p = 0; p < 4; p++) base[p] = GPIO_IDT(p);
+    con_puts("press the jog left, right and in now (10 s)\r\n");
+    for (int k = 0; k < 600; k++) {                     /* tx while waiting */
+        for (int j = 0; j < 400; j++) { usb_poll(); tx_kick(); }
+        for (int p = 0; p < 4; p++) seen[p] |= GPIO_IDT(p) ^ base[p];
+        delay(20000);
+    }
+    int any = 0;
+    for (unsigned i = 0; i < NPINS; i++) {
+        uint8_t pp = pin_list[i];
+        if (seen[pp >> 4] >> (pp & 15) & 1) { pin_name(pp); con_puts(" changed\r\n"); any = 1; }
+    }
+    if (!any) con_puts("no pin changed\r\n");
+    for (unsigned i = 0; i < NPINS; i++) pin_release(pin_list[i]);
+}
+
+/* Jog: PB1 (ADC ch9) voltage and PB13 level, logged on change for 10 s. */
+static void cmd_jog(void)
+{
+    ADC_SPT1 = 0x00FFFFFF; ADC_SPT2 = 0x3FFFFFFF;
+    ADC_CTRL2 = (7u << 17) | (1u << 20) | (1u << 23) | 1u;
+    delay(5000);
+    ADC_CTRL2 |= 1u << 3; for (uint32_t t = 0; (ADC_CTRL2 & 8) && t < 100000; t++) ;
+    ADC_CTRL2 |= 1u << 2; for (uint32_t t = 0; (ADC_CTRL2 & 4) && t < 100000; t++) ;
+    uint32_t vref = adc_read(17), vdda = vref ? 1200u * 4095u / vref : 3000;
+    pin_cfg(0x11, 0);                                  /* PB1 analog */
+    pin_pull(0x1D, 1);                                 /* PB13 with pull-up */
+    /* armed: wait up to 60 s for the first movement, then record 15 s from it */
+    int base_mv = adc_read(9) * vdda / 4095, base_d = pin_read(0x1D);
+    uint32_t ta = DWT_CYCCNT;
+    for (;;) {
+        for (int j = 0; j < 50; j++) { usb_poll(); tx_kick(); }
+        int mv = adc_read(9) * vdda / 4095, d = pin_read(0x1D);
+        if (mv - base_mv > 400 || base_mv - mv > 400 || d != base_d) break;
+        if ((DWT_CYCCNT - ta) / 48000 > 60000) { con_puts("no press within 60 s\r\n"); goto done; }
+    }
+    con_puts("idle PB1 "); con_dec(base_mv); con_puts(" mV  PB13 "); con_putc('0' + base_d); con_puts("\r\n");
+    int last_mv = -1000, last_d = -1; uint32_t t0 = DWT_CYCCNT, ms = 0;
+    while (ms < 25000) {
+        for (int j = 0; j < 50; j++) { usb_poll(); tx_kick(); }
+        int mv = adc_read(9) * vdda / 4095, d = pin_read(0x1D);
+        ms = (DWT_CYCCNT - t0) / 48000;
+        if (mv - last_mv > 300 || last_mv - mv > 300 || d != last_d) {
+            con_dec(ms); con_puts(" ms  PB1 "); con_dec(mv); con_puts(" mV  PB13 "); con_putc('0' + d); con_puts("\r\n");
+            last_mv = mv; last_d = d;
+        }
+    }
+done:
+    pin_release(0x11); pin_release(0x1D); ADC_CTRL2 = 0;
+}
+
 static int streq(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return *a == *b; }
 
 static void command(char *line)
@@ -633,7 +856,7 @@ static void command(char *line)
         con_puts("\r\nseries 0x"); con_hex(UID(2) >> 24, 2);
         con_puts("\r\naccess_protection "); con_puts(usd & 2 ? "on" : "off");
         con_puts("\r\nusd 0x"); con_hex(usd, 8);
-        con_puts("\r\nprobe stage2b " __DATE__ " " __TIME__ "\r\n");
+        con_puts("\r\nprobe stage2c " __DATE__ " " __TIME__ "\r\n");
     } else if (streq(line, "bootloader")) {
         con_puts("asking the bootloader for update mode; jog-at-power-on if this comes back\r\n");
         for (int i = 0; i < 20000; i++) usb_poll(), tx_kick();
@@ -654,8 +877,26 @@ static void command(char *line)
         cmd_i2cscan();
     } else if (streq(line, "ms5351")) {
         cmd_ms5351();
+    } else if (streq(line, "synthsearch")) {
+        cmd_synthsearch();
+    } else if (streq(line, "touch")) {
+        cmd_touch();
+    } else if (streq(line, "lcdid")) {
+        cmd_lcdid();
+    } else if (streq(line, "buttons")) {
+        cmd_buttons();
+    } else if (streq(line, "lcdred")) {
+        cmd_lcdfill(1, 0xF800);
+    } else if (streq(line, "pa5high")) {
+        pp_out(0x05, 1); con_puts("PA5 driven high\r\n");
+    } else if (streq(line, "pa5low")) {
+        pp_out(0x05, 0); con_puts("PA5 driven low\r\n");
+    } else if (streq(line, "lcdredlow")) {
+        cmd_lcdfill(0, 0xF800);
+    } else if (streq(line, "jog")) {
+        cmd_jog();
     } else if (streq(line, "help")) {
-        con_puts("id | pins | activity | adc | i2cscan | ms5351 | bootloader | reset | help\r\n");
+        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | bootloader | reset | help\r\n");
     } else {
         con_puts("error: unknown command; help lists them\r\n");
     }

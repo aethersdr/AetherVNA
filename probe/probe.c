@@ -17,6 +17,7 @@
  *   activity    which pins change while all are floating inputs
  *   adc         idle voltage on the analog-capable pins (PA0-PA7, PB0, PB1)
  *   i2cscan     I2C address scan on PB10/PB11 (open-drain only, read probes)
+ *   ms5351      read-only register reads from the MS5351M at 0x60
  *   bootloader  ask the bootloader to stay in update mode, then reset
  *   reset       software reset
  *   help
@@ -569,6 +570,57 @@ static void cmd_i2cscan(void)
     i2c_scan_one(0x1B, 0x1A);                            /* and swapped */
 }
 
+/* ---- stage 2b: MS5351M register reads (approved: read-only) ---- */
+/* Register map from Silicon Labs AN619 (Si5351, which the MS5351M follows).
+ * A read sets the device's register pointer with a one-byte write, then a
+ * repeated start reads. The pointer write changes no setting. */
+static int i2c_write_byte(uint8_t b)                    /* 1 if ACKed */
+{
+    for (int i = 7; i >= 0; i--) i2c_bit_out(b >> i & 1);
+    return !i2c_bit_out(1);
+}
+static uint8_t i2c_read_byte(int ack)
+{
+    uint8_t v = 0;
+    for (int i = 0; i < 8; i++) v = (v << 1) | i2c_bit_out(1);
+    i2c_bit_out(!ack);                                  /* ACK = 0, NACK = 1 */
+    return v;
+}
+static int ms5351_read(uint8_t reg, uint8_t *dst, int n)
+{
+    i2c_start();
+    if (!i2c_write_byte(0x60 << 1) || !i2c_write_byte(reg)) { i2c_stop(); return 0; }
+    i2c_start();                                         /* repeated start */
+    if (!i2c_write_byte((0x60 << 1) | 1)) { i2c_stop(); return 0; }
+    for (int i = 0; i < n; i++) dst[i] = i2c_read_byte(i < n - 1);
+    i2c_stop();
+    return 1;
+}
+static void cmd_ms5351(void)
+{
+    static const struct { uint8_t reg, n; const char *name; } blocks[] = {
+        { 0, 4, "status, sticky, mask, output_disable" },
+        { 16, 8, "clk0..7 control" },
+        { 183, 1, "xtal_load" },
+        { 187, 1, "fanout_enable" },
+    };
+    i2c_scl = 0x1A; i2c_sda = 0x1B;
+    od_mode(i2c_scl); od_mode(i2c_sda); delay(3000);
+    for (unsigned b = 0; b < sizeof blocks / sizeof blocks[0]; b++) {
+        uint8_t v[8];
+        con_puts("reg "); con_dec(blocks[b].reg); con_puts(" ("); con_puts(blocks[b].name); con_puts("):");
+        if (!ms5351_read(blocks[b].reg, v, blocks[b].n)) { con_puts(" no ACK\r\n"); continue; }
+        for (int i = 0; i < blocks[b].n; i++) { con_puts(" 0x"); con_hex(v[i], 2); }
+        con_puts("\r\n");
+        if (blocks[b].reg == 0) {
+            con_puts("  sys_init "); con_dec(v[0] >> 7 & 1); con_puts(" lol_b "); con_dec(v[0] >> 6 & 1);
+            con_puts(" lol_a "); con_dec(v[0] >> 5 & 1); con_puts(" los "); con_dec(v[0] >> 4 & 1);
+            con_puts(" revid "); con_dec(v[0] & 3); con_puts("\r\n");
+        }
+    }
+    pin_release(i2c_scl); pin_release(i2c_sda);
+}
+
 static int streq(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return *a == *b; }
 
 static void command(char *line)
@@ -581,7 +633,7 @@ static void command(char *line)
         con_puts("\r\nseries 0x"); con_hex(UID(2) >> 24, 2);
         con_puts("\r\naccess_protection "); con_puts(usd & 2 ? "on" : "off");
         con_puts("\r\nusd 0x"); con_hex(usd, 8);
-        con_puts("\r\nprobe stage1 " __DATE__ " " __TIME__ "\r\n");
+        con_puts("\r\nprobe stage2b " __DATE__ " " __TIME__ "\r\n");
     } else if (streq(line, "bootloader")) {
         con_puts("asking the bootloader for update mode; jog-at-power-on if this comes back\r\n");
         for (int i = 0; i < 20000; i++) usb_poll(), tx_kick();
@@ -600,8 +652,10 @@ static void command(char *line)
         cmd_adc();
     } else if (streq(line, "i2cscan")) {
         cmd_i2cscan();
+    } else if (streq(line, "ms5351")) {
+        cmd_ms5351();
     } else if (streq(line, "help")) {
-        con_puts("id | pins | activity | adc | i2cscan | bootloader | reset | help\r\n");
+        con_puts("id | pins | activity | adc | i2cscan | ms5351 | bootloader | reset | help\r\n");
     } else {
         con_puts("error: unknown command; help lists them\r\n");
     }

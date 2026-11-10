@@ -20,6 +20,12 @@ own probe firmware, and the licensed parts of the open NanoVNA V2 firmware.
   Not opening the case, not observing the stock firmware's signals, not reading
   register state the closed bootloader or firmware leave behind, never
   disassembling the stock image (Principle IV).
+- **External chips are read only from their own power-on state.** The
+  MS5351M, MAX2871 and others keep their registers across an MCU reset, so
+  after stock has run they hold stock's configuration. Before reading one, the
+  unit is power-cycled with our probe installed, so stock never runs first.
+  (A first MS5351M read on 2026-11-10 was taken after stock had run; it was
+  discarded unrecorded.)
 - After each session the stock image is restored (`~/bench-firmware/litevna/`)
   and the thru check rerun: stock v1.4.10 read 0 dB ±0.014 dB to 3 GHz after
   calibration; that is the acceptance bar for the port.
@@ -102,6 +108,28 @@ NACKed at once, so no register is written.
 
 So the MS5351M is on I2C2, SCL PB10, SDA PB11, with board pull-ups; nothing
 else is on that bus. Both lines read pulled-high again afterwards.
+
+## Stage 2b: MS5351M registers at power-on (approved, read-only, 2026-11-10)
+
+`ms5351`: read-only reads from 0x60 (a one-byte pointer write, then a repeated
+start), open-drain only. Read after a power cycle with the probe installed, so
+the chip was at its own power-on state. Register meanings from Silicon Labs
+AN619 (Si5351), which the MS5351M follows.
+
+| Register | Value | Meaning |
+|---|---|---|
+| 0 status | 0x11 | SYS_INIT 0 (ready), LOL_A 0 and LOL_B 0 (both PLLs locked), LOS 1 (nothing on CLKIN: normal with a crystal/TCXO reference), REVID 1 |
+| 1 sticky | 0xF8 | |
+| 2 mask | 0x03 | |
+| 3 output disable | 0x00 | all outputs enabled (power-on default) |
+| 16-18 CLK0-2 control | 0x00 0x00 0x00 | powered up, reference as source (default) |
+| 19-23 CLK3-7 control | 0x80 x5 | powered down: the MS5351M has three outputs |
+| 183 crystal load | 0xD2 | AN619 default (10 pF) |
+| 187 fanout | 0x02 | |
+
+So the MS5351M's reference is present and both PLLs lock at power-on. With
+its outputs passing the reference through, `activity` still saw no MCU pin
+change: CLK0-2 go to the RF side, not to the MCU. `pins` matched stage 1.
 
 ## Recovery
 

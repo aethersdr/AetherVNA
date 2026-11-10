@@ -39,7 +39,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 ```sh
 make -C probe                      # arm-none-eabi-gcc
 # unit in its bootloader: power on with the jog held, or `bootloader` on the probe console
-python3 <aether-fabric>/bench/litevna/flash.py --no-wait probe/probe.bin
+# then write probe/probe.bin at 0x08004000 with a V2-protocol flasher (NOTES.md, Recovery)
 ```
 
 ## Licence

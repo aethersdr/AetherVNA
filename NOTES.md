@@ -58,7 +58,7 @@ switching for S11 and S21.
 ## Recovery
 
 1. Our firmware's `bootloader` command, or power on with the jog held.
-2. `python3 ~/aether-fabric/bench/litevna/flash.py ~/bench-firmware/litevna/liteVNA64-260713.bin`
+2. Write the stock image (`liteVNA64-260713.bin`) at 0x08004000 with the bench's V2-protocol flash tool, which follows Zeenko's documented DFU registers.
 3. Zeenko's bootloader (0x08000000–0x08003FFF) and the option bytes are never
    written by anything here. Artery's ROM bootloader (BOOT0) is not used.
 

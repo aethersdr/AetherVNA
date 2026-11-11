@@ -886,6 +886,27 @@ recompute was compared byte by byte with uninitialised padding, so it
 recomputed mid-frame into the drawing's buffer. Zeroed now, and a
 recompute is refused while a frame is drawn.
 
+## Stage 19: TX POWER, measured (2026-11-11)
+
+STIMULUS > CFG SWEEP > TX POWER (2/4/6/8 mA; above 100 MHz the stimulus
+MAX2871's APWR -4/-1/+2/+5 dBm), console `power [0-3]` (NanoVNA-D's name).
+Only the stimulus changes, never the LO. The level is part of the sweep
+settings, so a calibration at one level is not applied at another. Default
+0, the level everything before was measured at.
+
+Raw thru, level against level 0 (the S21 ratio should not move):
+
+| Level | 50 kHz-55 MHz (gain x1) | 200 MHz-1 GHz (gain x1.9) |
+|---|---|---|
+| 1 | reference to 2211 counts, 1 point clipped, S21 up to +2.3 dB | 558-813 counts, no clip, within 0.03 dB |
+| 2 | every point clipped, up to +3.8 dB | 6 of 11 clipped, up to -0.37 dB |
+| 3 | every point clipped, up to +4.3 dB | all clipped, -1.7 to -2.4 dB |
+
+The receiver has no headroom for more drive (the IF gain is already x1
+below 100 MHz), so level 0 is the one to use; level 1 is clean above 100
+MHz. The menu says so when a level is chosen. (This run used the high band
+briefly: HF readings below 1.5 MHz need about 15 minutes to settle after.)
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch

@@ -64,6 +64,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 16: MEASURE modes: L/C match, cable, shunt LC, series L, crystal, checked against exact circuit models | Done |
 | 17: stored traces A-D (6.3 KB of RAM reclaimed for them) | Done |
 | 18: TRANSFORM: time domain (low-pass impulse/step, band pass, Kaiser windows, span), checked against an ideal line | Done |
+| 19: TX POWER (stimulus level), measured: only level 0 is clean below 100 MHz | Done |
 | Later: the remaining stock menus (NOTES.md, stage 12), open/short level check above 1 GHz | Planned |
 
 ## Build and flash
@@ -90,7 +91,7 @@ commands follow NanoVNA-D so existing tools can drive it:
 | `cal open\|short\|load\|thru\|done\|on\|off\|reset` | one-path SOLT on the device (RAM only for now) |
 | `cal get <std\|terms>`, `cal put <std> <i> <4 values>` | read standards and error terms; restore a saved calibration |
 | `flags` | per point: tuned frequency, reference level, ok/clip/lowref/range |
-| `gain [auto\|0..3]`, `avg [auto\|n]`, `retune [0\|1]`, `bracket [0\|1]`, `settle`, `tsettle` | measurement settings |
+| `gain [auto\|0..3]`, `avg [auto\|n]`, `retune [0\|1]`, `bracket [0\|1]`, `settle`, `tsettle`, `power [0-3]` | measurement settings |
 | `info`, `version`, `vbat`, `temp`, `jog`, `touch` | identity, state, battery, MCU temperature sensor (mV), inputs |
 | `trace [1-4 [on\|off\|s11\|s21\|<format>\|scale <v>\|ref <v>\|refpos <d>\|auto\|active]]` | the screen's traces; formats `logmag phase swr smith linear r x z` |
 | `marker [1-4 [on\|off\|active\|<index>\|minswr\|max\|min]]` | the screen's markers |

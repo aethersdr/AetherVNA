@@ -12,7 +12,7 @@
 #include "hw.h"
 #include "vna.h"
 
-sweep_cfg_t sweep_cfg = { 50000ull, 55050000ull, 101, 200, AVG_AUTO, GAIN_AUTO, 0, 1 }   /* HF: never wakes the MAX2871s */;
+sweep_cfg_t sweep_cfg = { 50000ull, 55050000ull, 101, 200, AVG_AUTO, GAIN_AUTO, 0, 1, 0 }   /* HF: never wakes the MAX2871s; lowest stimulus level */;
 point_t pts[POINTS_MAX];
 volatile uint8_t sweep_running;
 uint32_t sweep_count;
@@ -110,7 +110,7 @@ static uint32_t ms_last_d, ms_last_r;
 static void ms_outputs_off(void) { ms_w1(3, 0xFF); uint8_t off[3] = { 0x80, 0x80, 0x80 }; ms_write(16, off, 3); ms_last_d = 0; }
 static void ms_outputs_on(void)
 {
-    uint8_t ctl[3] = { 0x6C, 0x80, 0x4C };          /* CLK0: int MS, PLL B, own MS, 2 mA (LO); CLK1 off; CLK2: PLL A (stimulus) */
+    uint8_t ctl[3] = { 0x6C, 0x80, (uint8_t)(0x4C | (sweep_cfg.txpower & 3)) };   /* CLK0: int MS, PLL B, own MS, 2 mA (LO); CLK1 off; CLK2: PLL A (stimulus), 2-8 mA */
     ms_write(16, ctl, 3);
     ms_w1(3, 0xFA);                                 /* CLK0 and CLK2 enabled */
 }
@@ -184,7 +184,7 @@ static int mx_tune(uint64_t f, uint64_t *tuned)
     uint64_t u = (vco + 3000) / 6000;               /* VCO in 6 kHz units (24 MHz / M) */
     uint64_t ulo = u + (2ull << diva);              /* exactly IF_HZ above at the output */
     if (diva != mx_last_diva) {
-        mx_write(P_LE_STIM, mx_r4(diva, 1)); mx_write(P_LE_LO, mx_r4(diva, 1));
+        mx_write(P_LE_STIM, mx_r4(diva, 1) | ((uint32_t)(sweep_cfg.txpower & 3) << 3)); mx_write(P_LE_LO, mx_r4(diva, 1));   /* APWR: stimulus only */
         mx_last_diva = diva;
     }
     mx_write(P_LE_STIM, (uint32_t)((u / MX_M) << 15) | (uint32_t)((u % MX_M) << 3));
@@ -436,7 +436,8 @@ static uint8_t terms_ok;
 
 static int same_cfg(const sweep_cfg_t *a, const sweep_cfg_t *b)
 {
-    return a->start == b->start && a->stop == b->stop && a->points == b->points && a->gain == b->gain && a->bracket == b->bracket;   /* averaging changes noise, not the expected value */
+    return a->start == b->start && a->stop == b->stop && a->points == b->points && a->gain == b->gain && a->bracket == b->bracket
+        && a->txpower == b->txpower;   /* averaging changes noise, not the expected value */
 }
 int cal_valid(void)
 {
@@ -556,6 +557,7 @@ int cal_terms_get(int i, cpx t[6])
 /* ---------- background ---------- */
 static int bg_i;
 void vna_restart(void) { bg_i = 0; }   /* the background sweep starts over (new sweep settings) */
+void vna_set_txpower(int p) { sweep_cfg.txpower = (uint8_t)(p & 3); synth_all_off(); vna_restart(); }
 void vna_init(void)
 {
     table_init();

@@ -181,7 +181,7 @@ static void cmd_help(void)
     con_puts("measurement: scan <start> <stop> [points] [outmask] | sweep [start stop [points]] | data [0|1] |\r\n"
              "  frequencies | cal [open|short|load|thru|isoln|done|on|off|reset|enhanced [0|1]] | cal get <std|terms> |\r\n"
              "  cal put <std> <i> <s11re> <s11im> <s21re> <s21im> | pause | resume | flags |\r\n"
-             "  settle [samples] | tsettle [us] | avg [auto|n] | gain [auto|0..3] | bracket [0|1] | retune [0|1]\r\n"
+             "  settle [samples] | tsettle [us] | avg [auto|n] | gain [auto|0..3] | bracket [0|1] | retune [0|1] | power [0-3]\r\n"
              "display: trace [1-4 [...]] (trace 1 x for the formats) | marker [1-8 [...]|delta|tracking|jogstep] |\r\n"
              "  display [edelay|s21offset|portz|gridvalues|dotgrid|flip] | measure [off|lc|cable|shuntlc|seriesl|xtal|rl <ohm>|vf <v>] |\r\n"
              "  transform [on|off|impulse|step|bandpass|window min|normal|max] |\r\n"
@@ -313,6 +313,12 @@ void console_line(char *line)
     }
     else if (streq(c, "lcd") || streq(c, "backlight") || streq(c, "touch") || streq(c, "trace") || streq(c, "marker") || streq(c, "display") || streq(c, "ui") || streq(c, "measure") || streq(c, "point") || streq(c, "transform")) ui_command(argc_, argv_);
     else if (streq(c, "sd")) sd_command(argc_, argv_);
+    else if (streq(c, "power")) {                    /* NanoVNA-D's name: stimulus level 0-3 */
+        uint64_t p;
+        if (argc_ == 2) { if (!parse_u64(argv_[1], &p) || p > 3) { con_puts("usage: power [0-3]\r\n"); return; } vna_set_txpower((int)p); }
+        static const char *const lv[] = { "2 mA / -4 dBm", "4 mA / -1 dBm", "6 mA / +2 dBm", "8 mA / +5 dBm" };
+        con_udec(sweep_cfg.txpower); con_puts(" ("); con_puts(lv[sweep_cfg.txpower & 3]); con_puts(")\r\n");
+    }
     else if (streq(c, "save") || streq(c, "recall") || streq(c, "config")) store_command(argc_, argv_);
     else if (streq(c, "bootloader") || streq(c, "reset")) {
         if (jog_pressed()) { con_puts("error: the jog is pressed; a reset now would start the ROM bootloader\r\n"); return; }

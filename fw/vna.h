@@ -21,6 +21,7 @@ typedef struct {
     uint8_t  gain;                       /* IF gain: GAIN_AUTO or a fixed code 0..3 */
     uint8_t  bracket;                    /* 1: second reference after port 2, interpolated */
     uint8_t  retune;                     /* 1: retune before every averaged capture */
+    uint8_t  txpower;                    /* stimulus level 0-3: MS5351M 2/4/6/8 mA, MAX2871 -4/-1/+2/+5 dBm */
 } sweep_cfg_t;
 #define GAIN_AUTO 0xFF
 #define AVG_AUTO 0
@@ -44,6 +45,7 @@ extern uint32_t sweep_count;
 void vna_init(void);
 void vna_background(void);
 void vna_restart(void);
+void vna_set_txpower(int p);             /* 0-3; the synthesizers are reprogrammed on the next tune */
 
 uint64_t sweep_freq(int i);
 int  tune(uint64_t f, uint64_t *tuned);

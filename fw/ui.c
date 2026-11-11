@@ -458,7 +458,7 @@ static void line_text(int x, int y, const char *s, uint16_t fg, int xmax)
 /* ---------- menus ---------- */
 enum {
     MN_HOME, MN_DISPLAY, MN_TRACE, MN_F11, MN_F11B, MN_F11C, MN_S11SM, MN_F21, MN_F21B, MN_S21SM, MN_SCALE, MN_AVG,
-    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_MEAS, MN_TD, MN_TDWIN, MN_N
+    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_MEAS, MN_TD, MN_TDWIN, MN_TXP, MN_N
 };
 enum {
     A_NONE, A_BACK,
@@ -479,7 +479,7 @@ enum {
     A_SAVE0, A_SAVEEND = A_SAVE0 + 7, A_RCL0 = A_SAVEEND, A_RCLEND = A_RCL0 + 7,
     A_SDS1P = A_RCLEND, A_SDS2P, A_SDSCREEN, A_SDSCAL, A_SDAUTO, A_FILE0, A_FILEEND = A_FILE0 + 8,
     A_MS0 = A_FILEEND, A_MSEND = A_MS0 + 6, A_MSRL = A_MSEND, A_MSVF,
-    A_TDON, A_TDIMP, A_TDSTEP, A_TDBP, A_TDW0, A_TDWEND = A_TDW0 + 3, A_TDSPAN = A_TDWEND,
+    A_TDON, A_TDIMP, A_TDSTEP, A_TDBP, A_TDW0, A_TDWEND = A_TDW0 + 3, A_TDSPAN = A_TDWEND, A_TXP0, A_TXPEND = A_TXP0 + 4,
     A_N
 };
 #define SUB(m) (A_SUB + (m))
@@ -500,7 +500,7 @@ static uint8_t menus[MN_N][MROWS] = {                /* MN_SDLOAD is filled from
     [MN_SELMK]   = { A_MK0, A_MK0 + 1, A_MK0 + 2, A_MK0 + 3, A_MK0 + 4, A_MK0 + 5, A_MK0 + 6, A_MK0 + 7, A_MKALLOFF, A_BACK },
     [MN_OPS]     = { A_OSTART, A_OSTOP, A_OCENTER, A_OSPAN, A_OEDELAY, A_BACK },
     [MN_STIM]    = { A_START, A_STOP, A_CENTER, A_SPAN, A_CW, A_JOGSTEP, SUB(MN_CFGSW), A_BANDS, A_BACK },
-    [MN_CFGSW]   = { A_POINTS, A_TXPOWER, A_BACK },
+    [MN_CFGSW]   = { A_POINTS, SUB(MN_TXP), A_BACK },
     [MN_CALMENU] = { SUB(MN_CAL), SUB(MN_SAVE), A_CRANGE, A_CRESET, A_CRESETALL, A_CAPPLY, A_CENH, A_BACK },
     [MN_CAL]     = { A_COPEN, A_CSHORT, A_CLOAD, A_CISOLN, A_CTHRU, A_CDONE, A_CDONERAM, A_CSTD, A_BACK },
     [MN_CONFIG]  = { A_TOUCHCAL, A_TOUCHTEST, SUB(MN_EXPERT), A_SAVECFG, A_VERSION, A_BRIGHT, A_BACK },
@@ -512,18 +512,19 @@ static uint8_t menus[MN_N][MROWS] = {                /* MN_SDLOAD is filled from
     [MN_MEAS]    = { A_MS0, A_MS0 + 1, A_MS0 + 2, A_MS0 + 3, A_MS0 + 4, A_MS0 + 5, A_MSRL, A_MSVF, A_BACK },
     [MN_TD]      = { A_TDON, A_TDIMP, A_TDSTEP, A_TDBP, SUB(MN_TDWIN), A_MSVF, A_TDSPAN, A_BACK },
     [MN_TDWIN]   = { A_TDW0, A_TDW0 + 1, A_TDW0 + 2, A_BACK },
+    [MN_TXP]     = { A_TXP0, A_TXP0 + 1, A_TXP0 + 2, A_TXP0 + 3, A_BACK },
 };
 static const uint8_t menu_parent[MN_N] = {
     [MN_HOME] = MN_HOME, [MN_DISPLAY] = MN_HOME, [MN_TRACE] = MN_DISPLAY, [MN_F11] = MN_DISPLAY, [MN_F11B] = MN_F11,
     [MN_F11C] = MN_F11B, [MN_S11SM] = MN_F11, [MN_F21] = MN_DISPLAY, [MN_F21B] = MN_F21, [MN_S21SM] = MN_F21,
     [MN_SCALE] = MN_DISPLAY, [MN_AVG] = MN_DISPLAY, [MN_MARKER] = MN_HOME, [MN_SELMK] = MN_MARKER, [MN_OPS] = MN_MARKER,
     [MN_STIM] = MN_HOME, [MN_CFGSW] = MN_STIM, [MN_CALMENU] = MN_HOME, [MN_CAL] = MN_CALMENU, [MN_CONFIG] = MN_HOME,
-    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD, [MN_MEAS] = MN_HOME, [MN_TD] = MN_DISPLAY, [MN_TDWIN] = MN_TD,
+    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD, [MN_MEAS] = MN_HOME, [MN_TD] = MN_DISPLAY, [MN_TDWIN] = MN_TD, [MN_TXP] = MN_CFGSW,
 };
 static const char *const menu_name[MN_N] = {
     "home", "display", "trace", "format_s11", "format_s11_more", "format_s11_more2", "s11_smith", "format_s21",
     "format_s21_more", "s21_smith", "scale", "avg", "marker", "select_marker", "operations", "stimulus", "cfg_sweep",
-    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load", "measure", "transform", "window" };
+    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load", "measure", "transform", "window", "tx_power" };
 static const uint8_t avg_vals[8] = { AVG_AUTO, 1, 2, 4, 8, 16, 32, 64 };
 static uint8_t menu_open, menu_id, menu_sel;
 static char sd_files[8][13]; static int sd_nfiles; static uint8_t sd_autoname = 1;
@@ -537,7 +538,7 @@ static int item_label(int a, char *b)
     static const char *const sub_n[MN_N] = {
         "HOME", "DISPLAY", "TRACE", "FORMAT S11", ">MORE", ">MORE", "SMITH", "FORMAT S21", ">MORE", "SMITH",
         "SCALE", "AVG", "MARKER", "SELECT MK", "OPERATIONS", "STIMULUS", "CFG SWEEP", "CALIBRATE", "CALIBRATE",
-        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD", "MEASURE", "TRANSFORM", "WINDOW" };
+        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD", "MEASURE", "TRANSFORM", "WINDOW", "TX POWER" };
     char *p = b; *p = 0;
     if (a == A_BACK) { put_s(p, "< BACK"); return CK_NONE; }
     if (a >= A_SUB && a < A_SUB_END) { put_s(p, sub_n[a - A_SUB]); return CK_NONE; }
@@ -573,6 +574,10 @@ static int item_label(int a, char *b)
     if (a >= A_MS0 && a < A_MSEND) {
         static const char *const n[] = { "OFF", "L/C MATCH", "CABLE S11", "SHUNT LC", "SERIES L", "XTAL" };
         put_s(p, n[a - A_MS0]); return meas_mode == a - A_MS0 ? CK_ON : CK_OFF;
+    }
+    if (a >= A_TXP0 && a < A_TXPEND) {
+        static const char *const n[] = { "2 mA", "4 mA", "6 mA", "8 mA" };   /* above 100 MHz: -4, -1, +2, +5 dBm */
+        put_s(p, n[a - A_TXP0]); return sweep_cfg.txpower == a - A_TXP0 ? CK_ON : CK_OFF;
     }
     if (a >= A_TDW0 && a < A_TDWEND) {
         static const char *const n[] = { "MINIMUM", "NORMAL", "MAXIMUM" };
@@ -632,7 +637,6 @@ static int item_label(int a, char *b)
     case A_CW: put_s(p, "CW FREQ"); return CK_NONE;
     case A_JOGSTEP: put_s(p, "JOG STEP"); return CK_NONE;
     case A_POINTS: p = put_s(p, "POINTS "); put_u(p, sweep_cfg.points, 1); return CK_NONE;
-    case A_TXPOWER: put_s(p, "TX POWER"); return CK_DIM;
     case A_BANDS: put_s(p, "HF BANDS"); return CK_NONE;
     case A_COPEN: case A_CSHORT: case A_CLOAD: case A_CTHRU: {
         static const char *const n[] = { "OPEN", "SHORT", "LOAD", "THRU" };
@@ -997,6 +1001,11 @@ static void act(int a)
     if (a == A_MSRL || a == A_MSVF || a == A_TDSPAN) { grid_show(G_KEYPAD, a); return; }
     if (a == A_TDON) { td_set(!td_on); dirty |= D_FULL; return; }
     if (a == A_TDIMP || a == A_TDSTEP || a == A_TDBP) { td_mode = a == A_TDIMP ? TD_IMPULSE : a == A_TDSTEP ? TD_STEP : TD_BANDPASS; td_gen++; dirty |= D_FULL; return; }
+    if (a >= A_TXP0 && a < A_TXPEND) {
+        int lv = a - A_TXP0; vna_set_txpower(lv);
+        say(lv == 0 ? "2 mA (-4 dBm above 100 MHz): the clean level, calibrate at it" : lv == 1 ? "4 mA (-1 dBm): clips below 100 MHz, clean above (measured)" : lv == 2 ? "6 mA (+2 dBm): clips the receiver on this board (measured)" : "8 mA (+5 dBm): clips the receiver on this board (measured)", 5000);
+        dirty |= D_MENU | D_STATUS; return;
+    }
     if (a >= A_TDW0 && a < A_TDWEND) { td_win = (uint8_t)(a - A_TDW0); td_gen++; dirty |= D_FULL; return; }
     if (a >= A_SAVE0 && a < A_SAVEEND) {
         int n = a - A_SAVE0; say("saving...", 10000); draw_status();
@@ -1016,7 +1025,7 @@ static void act(int a)
     switch (a) {
     case A_BACK: if (menu_id == MN_HOME) menu_close(); else menu_show(menu_parent[menu_id]); return;
     case A_PAUSE: sweep_running = !sweep_running; if (!sweep_running) synth_all_off(); dirty |= D_MENU | D_STATUS; return;
-    case A_CSTD: case A_BRIGHT: case A_TXPOWER:
+    case A_CSTD: case A_BRIGHT:
         say("not built yet: see the plan in NOTES.md (stage 12)", 3000); return;
     case A_CHANNEL: tr[tr_act].ch ^= 1; if (tr[tr_act].fmt >= F_S21SR && !tr[tr_act].ch) set_format(F_LOGMAG, 0); dirty |= D_FULL; return;
     case A_SCALEDIV: case A_REFVAL: case A_REFPOS: case A_EDELAY: case A_S21OFF: case A_PORTZ:

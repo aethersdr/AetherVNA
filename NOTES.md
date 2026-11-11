@@ -826,6 +826,21 @@ Two first versions were wrong and fixed: the cable delay from the phase
 slope (biased when the line is not 50 ohm) and the notch frequency from a
 parabola (skewed); both now come from exact relations.
 
+## Stage 17: RAM for transform and stored traces (2026-11-11)
+
+Static RAM down 6.3 KB: sweep points reordered (the 64-bit frequency after
+the floats: 32 bytes a point instead of 40, 3.2 KB) and the USB transmit
+ring 4 KB -> 1 KB. Capture unchanged: 541,184 cycles for 6600 samples
+(expected 541,118), inline DFT = reference DFT, HF repeatability median sd
+0.0011 dB (raw thru, 8 sweeps).
+
+**Tried and reverted: a half-size cosine table** (cos(x + pi) = -cos x,
+4 KB more). The extra branch in the capture loop's three table lookups
+pushed it past the 82 core cycles one ADC conversion allows: 650,382
+cycles instead of 541,118, conversions missed, the reference collapsed
+from ~570 to ~10 counts. Caught by `raw`'s cycle count before anything was
+measured or committed. The capture loop has no spare cycles for that.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch

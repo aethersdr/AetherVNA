@@ -31,8 +31,8 @@ int  gain_for(uint64_t f);               /* code: bit0 PB14 (x3), bit1 PB15 (x1.
 enum { PF_CLIP = 1, PF_LOWREF = 2, PF_RANGE = 4 };
 typedef struct {
     cpx s11, s21;
+    uint64_t f_tuned;                    /* (after the floats: 32 bytes a point, not 40) */
     float ref;                           /* |reference| in ADC counts */
-    uint64_t f_tuned;
     uint8_t flags;
 } point_t;
 

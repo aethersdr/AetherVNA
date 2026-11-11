@@ -122,7 +122,7 @@ static const uint8_t *string_desc(int idx, uint16_t *len)
     return str_buf;
 }
 
-static uint8_t tx_ring[4096]; static uint16_t tx_head, tx_tail; static uint8_t tx_busy, tx_last_full;
+static uint8_t tx_ring[1024];   /* 4 KB before stage 17; output just waits on the host a little more */ static uint16_t tx_head, tx_tail; static uint8_t tx_busy, tx_last_full;
 
 static void configure_data_eps(void)
 {

@@ -60,7 +60,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 12: stock-style UI: four traces (log mag, phase, SWR, Smith, linear, R, X, \|Z\|), Smith chart over the grid, four markers with search, menus (display, marker, sweep with keypad and HF band presets, on-device calibration), touch and jog input, all mirrored on the console; `lcd capture` and `host/screenshot.py` for checking the screen over USB | Done: driven over the console, touch checked by hand |
 | 13: microSD slot found (SPI1, chip select PB9); SPI-mode driver and FAT32 read/write checked on a test card | Done |
 | 14: save/recall slots 0-6 (settings, display, calibration) and config (touch map) in flash; slot 0 at power-on | Done |
-| 15: SD CARD menu: S1P/S2P Touchstone, calibration save and LOAD | Done (SAVE SCREEN to do) |
+| 15: SD CARD menu: S1P/S2P Touchstone, BMP screenshots, calibration save and LOAD | Done |
 | Later: the remaining stock menus (NOTES.md, stage 12), open/short level check above 1 GHz | Planned |
 
 ## Build and flash
@@ -95,7 +95,7 @@ commands follow NanoVNA-D so existing tools can drive it:
 | `touch [cal\|map [ax bx ay by swap]]` | raw reading, on-screen touch calibration, the mapping |
 | `lcd [init\|test\|ui\|off\|capture\|madctl <hex>\|inv 0\|1\|marker <i>\|status]`, `backlight` | display; `capture` streams the redrawn screen (`host/screenshot.py` makes a PNG) |
 | `save <0-6>`, `recall <0-6>`, `config [save\|erase]` | settings and calibrations in flash (slot 0 loads at power-on); `config erase` before restoring stock |
-| `sd status\|probe\|cs\|init\|mount\|ls\|verify\|write`, `sd save s1p\|s2p\|cal [fixed]`, `sd load\|cat\|rm <file>` | microSD (SPI1, chip select PB9), FAT32, Touchstone and calibration files; `fat`, `fatrange`, `patsec`, `unlink`, `fsinfo` for repair |
+| `sd status\|probe\|cs\|init\|mount\|ls\|verify\|write`, `sd save s1p\|s2p\|cal\|bmp [fixed]`, `sd load\|cat\|hex\|rm <file>` | microSD (SPI1, chip select PB9), FAT32, Touchstone and calibration files; `fat`, `fatrange`, `patsec`, `unlink`, `fsinfo` for repair |
 | `raw <freq>`, `tune`, `ms`, `mx`, `pin`, `clk` | diagnostics |
 | `bootloader`, `reset` | refused while the jog is pressed |
 

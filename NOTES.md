@@ -683,7 +683,7 @@ code.
   Phase 2 (save/recall, save/clear config) is stage 14. Still to come:
   3) measure modes (L/C match, cable, shunt LC, series L, crystal, Rl);
   4) transform (time domain) and stored traces (need RAM); 5) SD card
-  files are stage 15 (SAVE SCREEN still to do); 6) brightness (PA5 PWM?), TX power, calibration standard model,
+  files are stage 15; 6) brightness (PA5 PWM?), TX power, calibration standard model,
   expert settings.
 - Console mirror: `trace`, `marker`, `display`, `ui state|tap|jog|menu|select`, `touch cal|map`.
   `lcd capture` redraws the screen while streaming every window's pixels
@@ -767,10 +767,17 @@ too wide.
 
 ## Stage 15: SD CARD menu files (2026-11-11)
 
-SD CARD (home menu): SAVE S1P, SAVE S2P, SAVE CAL, AUTONAME, LOAD; SAVE
-SCREEN is still dimmed (no framebuffer: a BMP needs the screen re-rendered
-through a temporary file, to do). Console: `sd save s1p|s2p|cal [fixed]`,
-`sd load <file>`, `sd cat <file>`, `sd rm <file>`.
+SD CARD (home menu): SAVE S1P, SAVE S2P, SAVE SCREEN, SAVE CAL, AUTONAME,
+LOAD. Console: `sd save s1p|s2p|cal|bmp [fixed]`, `sd load <file>`,
+`sd cat <file>`, `sd hex <file>`, `sd rm <file>`.
+
+SAVE SCREEN without a framebuffer: the screen is redrawn with the panel
+muted and every window and pixel run recorded into free clusters at the
+far end of the volume (writing free clusters changes no file; they are
+kept out of allocation meanwhile), then a 24-bit bottom-up 480x320 BMP is
+assembled 18 rows at a time, re-reading the recording per band. 14 s for
+the main screen; checked against a USB capture of the same paused screen:
+identical except the battery reading, which had changed (4.20 / 4.21 V).
 
 - Names: AUTONAME numbers them (AVNA0001.S1P, one above the highest on the
   card); off, AETHER.S1P etc. is replaced (the old chain freed first).
@@ -831,4 +838,4 @@ recording (2026-11-10).
   checked against the maintainer's test card.
 - Stage 14: save/recall slots 0-6 and config in flash; one menu font size.
 - Stage 15: SD CARD menu: S1P/S2P Touchstone, calibration files and LOAD.
-  Next: SAVE SCREEN (BMP), measure modes, transform and stored traces. Next: touch map, settings and calibration in flash.
+  Next: measure modes, transform and stored traces. Next: touch map, settings and calibration in flash.

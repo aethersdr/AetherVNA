@@ -461,7 +461,7 @@ static int item_label(int a, char *b)
     switch (a) {
     case A_SDS1P: put_s(p, "SAVE S1P"); return CK_NONE;
     case A_SDS2P: put_s(p, "SAVE S2P"); return CK_NONE;
-    case A_SDSCREEN: put_s(p, "SAVE SCREEN"); return CK_DIM;
+    case A_SDSCREEN: put_s(p, "SAVE SCREEN"); return CK_NONE;
     case A_SDSCAL: put_s(p, "SAVE CAL"); return CK_NONE;
     case A_SDAUTO: put_s(p, "AUTONAME"); return sd_autoname ? CK_ON : CK_OFF;
     }
@@ -762,6 +762,7 @@ static int marker_search_dir(int from, int dir, int want_min)   /* next peak (or
     return from;
 }
 static void touch_cal_start(void);
+static void render(void);
 static void draw_status(void);
 static void info_show(void);
 static void ttest_show(void);
@@ -819,6 +820,16 @@ static void act(int a)
         if (!r) menu_close();
         return;
     }
+    if (a == A_SDSCREEN) {                           /* the screen without the menu over it */
+        char name[13], b[48];
+        menu_open = 0; dirty = D_FULL; render();
+        say("writing the screen to the card...", 20000); draw_status();
+        msg[0] = 0; draw_status();                   /* not in the picture */
+        int r = sd_save_screen(sd_autoname, name);
+        if (r) say(r == -5 ? "no room on the card" : "could not write to the card", 3000);
+        else { char *q = put_s(b, "saved "); put_s(q, name); say(b, 4000); }
+        dirty |= D_FULL; return;
+    }
     if (a == A_SDS1P || a == A_SDS2P || a == A_SDSCAL) {
         char name[13], b[48]; say("writing to the card...", 10000); draw_status();
         int r = a == A_SDSCAL ? sd_save_cal(sd_autoname, name) : sd_save_touchstone(a == A_SDS2P, sd_autoname, name);
@@ -846,7 +857,7 @@ static void act(int a)
     switch (a) {
     case A_BACK: if (menu_id == MN_HOME) menu_close(); else menu_show(menu_parent[menu_id]); return;
     case A_PAUSE: sweep_running = !sweep_running; if (!sweep_running) synth_all_off(); dirty |= D_MENU | D_STATUS; return;
-    case A_SDSCREEN: case A_STORE: case A_TRANSFORM: case A_CSTD: case A_BRIGHT: case A_TXPOWER: case A_MEASURE:
+    case A_STORE: case A_TRANSFORM: case A_CSTD: case A_BRIGHT: case A_TXPOWER: case A_MEASURE:
         say("not built yet: see the plan in NOTES.md (stage 12)", 3000); return;
     case A_CHANNEL: tr[tr_act].ch ^= 1; if (tr[tr_act].fmt >= F_S21SR && !tr[tr_act].ch) set_format(F_LOGMAG, 0); dirty |= D_FULL; return;
     case A_SCALEDIV: case A_REFVAL: case A_REFPOS: case A_EDELAY: case A_S21OFF: case A_PORTZ:
@@ -1384,6 +1395,14 @@ void ui_cfg_put(const uint8_t *b, int n)
     if (c.flipped != flipped) { flipped = c.flipped; madctl ^= 0xC0; if (lcd_ready) lcd_cmd(0x36, &madctl, 1); }
 }
 void ui_redraw_full(void) { dirty |= D_FULL; }
+void ui_render_screen(void)                          /* the whole screen as it stands, for a capture */
+{
+    if (!ui_on) lcd_test_card();
+    else if (mode == MODE_TCAL) draw_cross(tcal_pt[tcal_step][0], tcal_pt[tcal_step][1]);
+    else if (mode == MODE_INFO) info_show();
+    else if (mode == MODE_TTEST) ttest_show();
+    else { dirty = D_FULL; render(); }
+}
 
 /* ---------- drawing and entry points ---------- */
 static void render(void)
@@ -1673,11 +1692,7 @@ void ui_command(int argc, char **argv)
         if (!lcd_ready) { con_puts("error: the screen is off\r\n"); return; }
         con_puts("capture 480 320\r\n");
         lcd_capture(1);
-        if (!ui_on) lcd_test_card();
-        else if (mode == MODE_TCAL) draw_cross(tcal_pt[tcal_step][0], tcal_pt[tcal_step][1]);
-        else if (mode == MODE_INFO) info_show();
-        else if (mode == MODE_TTEST) ttest_show();
-        else { dirty = D_FULL; render(); }
+        ui_render_screen();
         lcd_capture(0);
         con_puts("end\r\n");
     } else if (streq(a, "madctl") && argc > 2) {

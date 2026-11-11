@@ -68,13 +68,18 @@ void lcd_cmd(uint8_t c, const uint8_t *d, int n)
  * this on: each window as "W x0 y0 x1 y1", then its pixels in drawing order
  * as runs "cccc*n" (RGB565 hex, count), then "E". host/screenshot.py turns it
  * into a PNG. */
-static uint8_t cap;
+static uint8_t cap, mute;
 static uint16_t cap_c; static uint32_t cap_n; static int cap_k;
+static void (*sink_win)(int x0, int y0, int x1, int y1);   /* capture to somewhere other than the console */
+static void (*sink_run)(uint16_t c, uint32_t n);
 static void cap_flush(void)
 {
     if (!cap_n) return;
-    con_hex(cap_c, 4); con_putc('*'); con_udec(cap_n); con_putc(' ');
-    if (++cap_k == 12) { cap_k = 0; con_puts("\r\n"); }
+    if (sink_run) sink_run(cap_c, cap_n);
+    else {
+        con_hex(cap_c, 4); con_putc('*'); con_udec(cap_n); con_putc(' ');
+        if (++cap_k == 12) { cap_k = 0; con_puts("\r\n"); }
+    }
     cap_n = 0;
 }
 static void cap_px(uint16_t c, uint32_t n)
@@ -87,13 +92,23 @@ void lcd_capture(int on)
     if (!on) { cap_flush(); cap = 0; return; }
     cap = 1; cap_n = 0; cap_k = 0;
 }
+/* Capture into callbacks with the panel left alone (it already shows the screen). */
+void lcd_capture_sink(void (*w)(int, int, int, int), void (*r)(uint16_t, uint32_t))
+{
+    if (!w) { cap_flush(); cap = 0; mute = 0; sink_win = 0; sink_run = 0; return; }
+    sink_win = w; sink_run = r; cap = 1; mute = 1; cap_n = 0;
+}
 static void lcd_window(int x0, int y0, int x1, int y1)
 {
     if (cap) {
         cap_flush(); cap_k = 0;
-        con_puts("W "); con_udec(x0); con_putc(' '); con_udec(y0); con_putc(' ');
-        con_udec(x1); con_putc(' '); con_udec(y1); con_puts("\r\n");
+        if (sink_win) sink_win(x0, y0, x1, y1);
+        else {
+            con_puts("W "); con_udec(x0); con_putc(' '); con_udec(y0); con_putc(' ');
+            con_udec(x1); con_putc(' '); con_udec(y1); con_puts("\r\n");
+        }
     }
+    if (mute) return;
     uint8_t ca[4] = { x0 >> 8, x0, x1 >> 8, x1 }, ra[4] = { y0 >> 8, y0, y1 >> 8, y1 };
     lcd_cmd(0x2A, ca, 4); lcd_cmd(0x2B, ra, 4);
     spi_idle();
@@ -103,12 +118,12 @@ static void lcd_window(int x0, int y0, int x1, int y1)
 }
 static void lcd_end(void)
 {
-    spi_idle(); pin_set(P_LCD_CS, 1);
-    if (cap) { cap_flush(); cap_k = 0; con_puts("\r\nE\r\n"); }
+    if (!mute) { spi_idle(); pin_set(P_LCD_CS, 1); }
+    if (cap) { cap_flush(); cap_k = 0; if (!sink_win) con_puts("\r\nE\r\n"); }
 }
 static void lcd_push(const uint16_t *px, int n)
 {
-    for (int i = 0; i < n; i++) { spi_tx(px[i] >> 8); spi_tx(px[i] & 0xFF); }
+    if (!mute) for (int i = 0; i < n; i++) { spi_tx(px[i] >> 8); spi_tx(px[i] & 0xFF); }
     if (cap) for (int i = 0; i < n; i++) cap_px(px[i], 1);
 }
 void lcd_blit(int x, int y, int w, int h, const uint16_t *px)
@@ -120,7 +135,7 @@ void lcd_fill(int x, int y, int w, int h, uint16_t c)
 {
     if (w <= 0 || h <= 0) return;
     lcd_window(x, y, x + w - 1, y + h - 1);
-    for (int i = 0; i < w * h; i++) { spi_tx(c >> 8); spi_tx(c & 0xFF); if ((i & 4095) == 4095) service(); }
+    if (!mute) for (int i = 0; i < w * h; i++) { spi_tx(c >> 8); spi_tx(c & 0xFF); if ((i & 4095) == 4095) service(); }
     if (cap) cap_px(c, (uint32_t)w * h);
     lcd_end();
 }

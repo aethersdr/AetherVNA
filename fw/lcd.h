@@ -18,6 +18,7 @@ void lcd_cmd(uint8_t c, const uint8_t *d, int n);
 void lcd_fill(int x, int y, int w, int h, uint16_t c);
 void lcd_blit(int x, int y, int w, int h, const uint16_t *px);
 void lcd_capture(int on);
+void lcd_capture_sink(void (*w)(int, int, int, int), void (*r)(uint16_t, uint32_t));   /* panel muted; 0 ends */
 void lcd_test_card(void);
 
 int  text(int x, int y, const char *s, uint16_t fg, uint16_t bg, int sc);   /* returns x after */

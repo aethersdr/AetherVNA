@@ -384,11 +384,13 @@ static int fat_write_small(const char *name, const char *text)
 
 /* ---------- files: streaming write, delete, streaming read ---------- */
 static uint32_t free_hint = 3;
+static uint32_t excl_lo, excl_hi;                     /* clusters in use as SAVE SCREEN's scratch */
 static uint32_t alloc_cluster(void)                  /* the next free cluster from the hint; 0 if none */
 {
     for (uint32_t k = 0, c = free_hint; k < n_clus; k++, c++) {
         if (c >= n_clus + 2) c = 2;
         if (c < 2) continue;
+        if (excl_hi && c >= excl_lo && c <= excl_hi) continue;
         if (!fat_get(c)) { free_hint = c + 1; return c; }
         if ((k & 1023) == 0) service();
     }
@@ -635,6 +637,107 @@ int sd_list(const char *ext, char names[][13], int max)
     return n;
 }
 
+/* ---------- SAVE SCREEN: a 480x320 BMP without a framebuffer ----------
+ * Pass 1 redraws the screen with the panel muted and records every window
+ * and pixel run (binary: a window is 0,x0,y0,x1,y1 as u16; a run is
+ * count,colour) into free clusters at the far end of the volume. Free
+ * clusters hold nothing, so writing them changes no file; they are kept out
+ * of allocation while in use. Pass 2 builds the BMP 18 rows at a time in the
+ * borrowed buffer, re-reading the recording for each band, and writes it as
+ * an ordinary file. The recording's sectors use their own 512-byte buffer,
+ * because the drawing in pass 1 uses adc_buf. */
+static uint8_t capbuf[512];
+static uint32_t scr_lba, scr_max, scr_idx, scr_bytes; static int scr_pos, scr_err;
+static void scr_emit16(uint16_t v)
+{
+    for (int k = 0; k < 2; k++) {
+        capbuf[scr_pos++] = k ? (uint8_t)(v >> 8) : (uint8_t)v;
+        if (scr_pos == 512) {
+            if (scr_idx >= scr_max || sd_write(scr_lba + scr_idx, capbuf)) scr_err = 1;
+            scr_idx++; scr_pos = 0;
+        }
+    }
+    scr_bytes += 2;
+}
+static void scr_win(int x0, int y0, int x1, int y1) { scr_emit16(0); scr_emit16((uint16_t)x0); scr_emit16((uint16_t)y0); scr_emit16((uint16_t)x1); scr_emit16((uint16_t)y1); }
+static void scr_run(uint16_t c, uint32_t n) { while (n) { uint16_t k = n > 65535 ? 65535 : (uint16_t)n; scr_emit16(k); scr_emit16(c); n -= k; } }
+static uint32_t rd_sec; static int rd_pos;
+static uint16_t scr_read16(void)
+{
+    uint16_t v = 0;
+    for (int k = 0; k < 2; k++) {
+        if (rd_pos == 512) { if (sd_read(scr_lba + rd_sec, capbuf)) scr_err = 1; rd_sec++; rd_pos = 0; }
+        v |= (uint16_t)capbuf[rd_pos++] << (8 * k);
+    }
+    return v;
+}
+int sd_save_screen(int autoname, char *name)
+{
+    if (prepare("BMP", autoname, name)) return -1;
+    /* scratch: the last free run long enough for a worst-case recording */
+    uint32_t cb = spc * 512u, need = (700u * 1024u + cb - 1) / cb, run = 0, lo = 0;
+    for (uint32_t c = n_clus + 1; c >= 2; c--) {
+        if (fat_get(c)) run = 0; else if (++run == need) { lo = c; break; }
+        if ((c & 1023) == 0) service();
+    }
+    if (!lo) return -5;
+    scr_lba = clus_lba(lo); scr_max = need * spc; scr_idx = 0; scr_pos = 0; scr_bytes = 0; scr_err = 0;
+    excl_lo = lo; excl_hi = lo + need - 1;
+    lcd_capture_sink(scr_win, scr_run);
+    ui_render_screen();
+    lcd_capture_sink(0, 0);
+    if (scr_pos && !scr_err) { for (int k = scr_pos; k < 512; k++) capbuf[k] = 0; if (scr_idx >= scr_max || sd_write(scr_lba + scr_idx, capbuf)) scr_err = 1; }
+    if (scr_err) { excl_lo = excl_hi = 0; return -6; }
+    /* pass 2: the BMP, bottom-up, 24 bits */
+    free_hint = 3;
+    fw_t f; if (fw_open(&f)) { excl_lo = excl_hi = 0; return -2; }
+    uint8_t hdr[54] = { 'B', 'M' };
+    uint32_t img = 480u * 3u * 320u;
+    wr32(hdr + 2, 54 + img); wr32(hdr + 10, 54); wr32(hdr + 14, 40); wr32(hdr + 18, 480); wr32(hdr + 22, 320);
+    wr16(hdr + 26, 1); wr16(hdr + 28, 24); wr32(hdr + 34, img); wr32(hdr + 38, 2835); wr32(hdr + 42, 2835);
+    fw_bytes(&f, hdr, 54);
+    #define BAND 18
+    uint16_t *band = (uint16_t *)(((uint8_t *)adc_buf) + 1024);
+    for (int top = 320; top > 0 && !f.err && !scr_err; ) {
+        int ylo = top - BAND < 0 ? 0 : top - BAND, yhi = top;
+        for (int k = 0; k < (yhi - ylo) * 480; k++) band[k] = 0;
+        rd_sec = 0; rd_pos = 512;
+        uint32_t got = 0; int x0 = 0, y0 = 0, w = 1; uint32_t p = 0;
+        while (got < scr_bytes && !scr_err) {
+            uint16_t a = scr_read16(); got += 2;
+            if (a == 0) {                            /* a window */
+                x0 = scr_read16(); y0 = scr_read16(); int x1 = scr_read16(), y1 = scr_read16(); got += 8;
+                w = x1 - x0 + 1; (void)y1; p = 0; continue;
+            }
+            uint16_t c = scr_read16(); got += 2;
+            uint32_t n = a;
+            while (n) {
+                int r = (int)(p / (uint32_t)w), col = (int)(p % (uint32_t)w);
+                uint32_t take = (uint32_t)(w - col); if (take > n) take = n;
+                int y = y0 + r;
+                if (y >= ylo && y < yhi) for (uint32_t k = 0; k < take; k++) { int x = x0 + col + (int)k; if (x >= 0 && x < 480) band[(y - ylo) * 480 + x] = c; }
+                p += take; n -= take;
+            }
+        }
+        for (int y = yhi - 1; y >= ylo && !f.err; y--) {
+            uint8_t row[48];                         /* 16 pixels at a time */
+            for (int x = 0; x < 480; x += 16) {
+                for (int k = 0; k < 16; k++) {
+                    uint16_t c = band[(y - ylo) * 480 + x + k];
+                    uint8_t r5 = c >> 11, g6 = (c >> 5) & 63, b5 = c & 31;
+                    row[3 * k] = (uint8_t)(b5 << 3 | b5 >> 2); row[3 * k + 1] = (uint8_t)(g6 << 2 | g6 >> 4); row[3 * k + 2] = (uint8_t)(r5 << 3 | r5 >> 2);
+                }
+                fw_bytes(&f, row, 48);
+            }
+        }
+        top = ylo;
+        service();
+    }
+    excl_lo = excl_hi = 0;
+    if (scr_err) return -6;
+    return fw_close(&f, name);
+}
+
 /* ---------- console ---------- */
 static int streq(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return *a == *b; }
 /* Rewrites one sector of a cluster with PATTERN.BIN's formula (repair aid). */
@@ -701,7 +804,8 @@ void sd_command(int argc, char **argv)
         char name[13]; int r, autoname = !(argc > 3 && streq(argv[3], "fixed"));
         if (streq(argv[2], "s1p") || streq(argv[2], "s2p")) r = sd_save_touchstone(argv[2][1] == '2', autoname, name);
         else if (streq(argv[2], "cal")) r = sd_save_cal(autoname, name);
-        else { con_puts("usage: sd save s1p|s2p|cal [fixed]\r\n"); return; }
+        else if (streq(argv[2], "bmp")) r = sd_save_screen(autoname, name);
+        else { con_puts("usage: sd save s1p|s2p|cal|bmp [fixed]\r\n"); return; }
         if (r == -3) { con_puts("error: no calibration\r\n"); return; }
         if (r) { con_puts("error: "); con_dec(r); con_puts("\r\n"); return; }
         con_puts("saved "); con_puts(name); con_puts("\r\n"); return;
@@ -710,6 +814,14 @@ void sd_command(int argc, char **argv)
         int r = sd_load_cal(argv[2]);
         con_puts(r == 0 ? "ok: calibration and its sweep loaded\r\n" : r == -2 ? "error: not found\r\n" : r == -4 ? "error: saved by another firmware layout\r\n" : "error: not a calibration file\r\n");
         return;
+    }
+    if (streq(a, "hex") && argc == 3) {              /* the whole file in hex, 32 bytes a line */
+        if (!mounted && fat_mount(0)) return;
+        fr_t r; if (fr_open(&r, argv[2])) { con_puts("error: not found\r\n"); return; }
+        con_puts("size "); con_udec(r.d.size); con_puts("\r\n");
+        uint8_t ch; int k = 0;
+        while (fr_bytes(&r, &ch, 1) == 0) { con_hex(ch, 2); if (++k == 32) { k = 0; con_puts("\r\n"); } }
+        con_puts("\r\nend\r\n"); return;
     }
     if (streq(a, "rm") && argc == 3) { if (!mounted && fat_mount(0)) return; con_puts(fat_delete(argv[2]) ? "error\r\n" : "ok\r\n"); return; }
     if (streq(a, "cat") && argc == 3) {

@@ -61,6 +61,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 13: microSD slot found (SPI1, chip select PB9); SPI-mode driver and FAT32 read/write checked on a test card | Done |
 | 14: save/recall slots 0-6 (settings, display, calibration) and config (touch map) in flash; slot 0 at power-on | Done |
 | 15: SD CARD menu: S1P/S2P Touchstone, BMP screenshots, calibration save and LOAD | Done |
+| 17: stored traces A-D (6.3 KB of RAM reclaimed for them) | Done |
 | 16: MEASURE modes: L/C match, cable, shunt LC, series L, crystal, checked against exact circuit models | Done |
 | Later: the remaining stock menus (NOTES.md, stage 12), open/short level check above 1 GHz | Planned |
 

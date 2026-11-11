@@ -140,6 +140,9 @@ static int mk_act;
 static uint8_t mk_delta, mk_tracking, search_min;  /* delta: values relative to marker 1 */
 static uint32_t jog_step;                          /* Hz per jog click, 0 = one point */
 
+/* Stored traces A-D: a rectangular trace's values at the time of storing. */
+typedef struct { uint8_t on, fmt, ch, src, refpos; uint16_t n; float scale, ref; float v[POINTS_MAX]; } mem_t;
+static mem_t mem[4];
 static float edelay, s21_offset, port_z = 50;      /* s, dB, ohm */
 enum { MS_OFF, MS_LC, MS_CABLE, MS_SHUNTLC, MS_SERIESL, MS_XTAL, MS_N };
 static uint8_t meas_mode;
@@ -367,7 +370,7 @@ enum {
     /* submenus: A_SUB + menu id */
     A_SUB = 2, A_SUB_END = A_SUB + MN_N,
     A_PAUSE = A_SUB_END, A_RECALL, A_MEASURE, A_SDCARD,
-    A_TRACE0, A_TRACE3 = A_TRACE0 + 3, A_STORE,
+    A_TRACE0, A_TRACE3 = A_TRACE0 + 3, A_STORE0, A_STORE3 = A_STORE0 + 3,
     A_F0, A_FEND = A_F0 + F_N,                       /* set format (and channel by menu) */
     A_SM0 = A_FEND, A_SMEND = A_SM0 + 9,             /* Smith readout */
     A_CHANNEL = A_SMEND, A_SCALEDIV, A_REFVAL, A_REFPOS, A_EDELAY, A_S21OFF, A_GRIDVAL, A_DOTGRID, A_AUTO,
@@ -387,7 +390,7 @@ enum {
 static uint8_t menus[MN_N][MROWS] = {                /* MN_SDLOAD is filled from the card */
     [MN_HOME]    = { SUB(MN_DISPLAY), SUB(MN_MARKER), SUB(MN_STIM), SUB(MN_CALMENU), SUB(MN_RECALL), SUB(MN_MEAS), SUB(MN_SD), SUB(MN_CONFIG), A_PAUSE },
     [MN_DISPLAY] = { SUB(MN_TRACE), SUB(MN_F11), SUB(MN_F21), A_CHANNEL, SUB(MN_SCALE), A_TRANSFORM, SUB(MN_AVG), A_PORTZ, A_BACK },
-    [MN_TRACE]   = { A_TRACE0, A_TRACE0 + 1, A_TRACE0 + 2, A_TRACE0 + 3, A_STORE, A_BACK },
+    [MN_TRACE]   = { A_TRACE0, A_TRACE0 + 1, A_TRACE0 + 2, A_TRACE0 + 3, A_STORE0, A_STORE0 + 1, A_STORE0 + 2, A_STORE0 + 3, A_BACK },
     [MN_F11]     = { A_F0 + F_LOGMAG, A_F0 + F_PHASE, A_F0 + F_DELAY, SUB(MN_S11SM), A_F0 + F_SWR, A_F0 + F_R, A_F0 + F_X, A_F0 + F_Z, SUB(MN_F11B), A_BACK },
     [MN_F11B]    = { A_F0 + F_POLAR, A_F0 + F_LINEAR, A_F0 + F_REAL, A_F0 + F_IMAG, A_F0 + F_Q, A_F0 + F_G, A_F0 + F_B, A_F0 + F_Y, SUB(MN_F11C), A_BACK },
     [MN_F11C]    = { A_F0 + F_ZPHASE, A_F0 + F_SERC, A_F0 + F_SERL, A_F0 + F_PARR, A_F0 + F_PARX, A_F0 + F_PARC, A_F0 + F_PARL, A_BACK },
@@ -440,6 +443,10 @@ static int item_label(int a, char *b)
     char *p = b; *p = 0;
     if (a == A_BACK) { put_s(p, "< BACK"); return CK_NONE; }
     if (a >= A_SUB && a < A_SUB_END) { put_s(p, sub_n[a - A_SUB]); return CK_NONE; }
+    if (a >= A_STORE0 && a <= A_STORE3) {
+        int k = a - A_STORE0; p = put_s(p, "STORE "); *p++ = (char)('A' + k); *p = 0;
+        return mem[k].on ? CK_ON : CK_OFF;
+    }
     if (a >= A_TRACE0 && a <= A_TRACE3) {
         int t = a - A_TRACE0; p = put_s(p, "TRACE "); p = put_u(p, t + 1, 1); if (t == tr_act) put_s(p, " <");
         return tr[t].on ? CK_ON : CK_OFF;
@@ -490,7 +497,6 @@ static int item_label(int a, char *b)
     }
     switch (a) {
     case A_PAUSE: put_s(p, "PAUSE"); return sweep_running ? CK_OFF : CK_ON;
-    case A_STORE: put_s(p, "STORE TRACE"); return CK_DIM;
     case A_CHANNEL: put_s(p, tr[tr_act].ch ? "CHAN S21" : "CHAN S11"); return CK_NONE;
     case A_SCALEDIV: put_s(p, "SCALE/DIV"); return CK_NONE;
     case A_REFVAL: put_s(p, "REF VALUE"); return CK_NONE;
@@ -808,6 +814,14 @@ static void set_format(int f, int ch)
     t->fmt = f; t->ch = ch; t->on = 1;
     dirty |= D_FULL;
 }
+static void mem_store(int k, int t)
+{
+    mem_t *m = &mem[k];
+    m->fmt = tr[t].fmt; m->ch = tr[t].ch; m->src = (uint8_t)t; m->scale = tr[t].scale; m->ref = tr[t].ref; m->refpos = tr[t].refpos;
+    m->n = sweep_cfg.points;
+    for (int i = 0; i < m->n; i++) { m->v[i] = trace_val(t, i); if ((i & 31) == 0) service(); }
+    m->on = 1;
+}
 static void act(int a)
 {
     if (a >= A_SUB && a < A_SUB_END && a != SUB(MN_SDLOAD)) { menu_show(a - A_SUB); return; }
@@ -815,6 +829,12 @@ static void act(int a)
         int t = a - A_TRACE0;
         if (t == tr_act) tr[t].on = !tr[t].on; else { tr[t].on = 1; tr_act = t; }
         dirty |= D_MENU | D_LEGEND | D_GRAPH; return;
+    }
+    if (a >= A_STORE0 && a <= A_STORE3) {
+        int k = a - A_STORE0;
+        if (mem[k].on) { mem[k].on = 0; dirty |= D_MENU | D_GRAPH; return; }
+        if (!tr[tr_act].on || fkind(tr_act) != K_RECT || !have_data) { say("store: the active trace must be shown in a rectangular format", 3000); return; }
+        mem_store(k, tr_act); dirty |= D_MENU | D_GRAPH; return;
     }
     if (a >= A_F0 && a < A_FEND) { set_format(a - A_F0, menu_id == MN_F21 || menu_id == MN_F21B); dirty |= D_MENU; return; }
     if (a >= A_SM0 && a < A_SMEND) {
@@ -875,7 +895,7 @@ static void act(int a)
     switch (a) {
     case A_BACK: if (menu_id == MN_HOME) menu_close(); else menu_show(menu_parent[menu_id]); return;
     case A_PAUSE: sweep_running = !sweep_running; if (!sweep_running) synth_all_off(); dirty |= D_MENU | D_STATUS; return;
-    case A_STORE: case A_TRANSFORM: case A_CSTD: case A_BRIGHT: case A_TXPOWER:
+    case A_TRANSFORM: case A_CSTD: case A_BRIGHT: case A_TXPOWER:
         say("not built yet: see the plan in NOTES.md (stage 12)", 3000); return;
     case A_CHANNEL: tr[tr_act].ch ^= 1; if (tr[tr_act].fmt >= F_S21SR && !tr[tr_act].ch) set_format(F_LOGMAG, 0); dirty |= D_FULL; return;
     case A_SCALEDIV: case A_REFVAL: case A_REFPOS: case A_EDELAY: case A_S21OFF: case A_PORTZ:
@@ -1055,7 +1075,7 @@ static float col_val(int t, int col)
 static void draw_graph(void)
 {
     int hh = GY1 - GY0, xend = menu_open ? MX : GX1;
-    int prev[4] = { -1, -1, -1, -1 };
+    int prev[4] = { -1, -1, -1, -1 }, prevm[4] = { -1, -1, -1, -1 };
     int rect = any_kind(K_RECT), smith = any_kind(K_SMITH), polar = any_kind(K_POLAR);
     int mcol[NMK]; for (int m = 0; m < NMK; m++) mcol[m] = mk[m].on ? col_of_point(mk[m].idx) : -100;
     for (int xs = 0; GX0 + xs < xend; xs += 32) {
@@ -1072,6 +1092,25 @@ static void draw_graph(void)
         if (polar) polar_grid(x0, w);
         if (have_data) {
             for (int t = 3; t >= 0; t--) if (tr[t].on && fkind(t) != K_RECT) chart_trace(t, x0, w);
+            for (int k = 0; k < 4; k++) {                 /* stored traces, under the live ones */
+                mem_t *m = &mem[k]; if (!m->on || m->n < 2) continue;
+                const trace_t *src = &tr[m->src];
+                int same = src->fmt == m->fmt;
+                float sc = same ? src->scale : m->scale, rf = same ? src->ref : m->ref; int rp = same ? src->refpos : m->refpos;
+                uint16_t c = (uint16_t)((tcolor[m->src] >> 1) & 0x7BEF);
+                for (int kk = 0; kk < w; kk++) {
+                    int col = xs + kk;
+                    float pos = (float)col * (m->n - 1) / (GW - 1); int i = (int)pos; if (i >= m->n - 1) i = m->n - 2;
+                    float fr = pos - i, v = m->v[i] * (1 - fr) + m->v[i + 1] * fr;
+                    float yf = (NDIV - rp) * DIV_PX - (v - rf) / sc * DIV_PX;
+                    int y = yf < 0 ? 0 : yf > hh - 1 ? hh - 1 : (int)(yf + 0.5f);
+                    int a2 = prevm[k] < 0 ? y : prevm[k];
+                    if ((m->fmt == F_PHASE || m->fmt == F_ZPHASE) && iabs(a2 - y) > hh / 2) a2 = y;
+                    int lo = a2 < y ? a2 : y, hi = a2 < y ? y : a2;
+                    for (int r = lo; r <= hi; r++) BUF[r * w + kk] = c;
+                    prevm[k] = y;
+                }
+            }
             for (int t = 3; t >= 0; t--) {
                 if (!tr[t].on || fkind(t) != K_RECT) continue;
                 int wraps = tr[t].fmt == F_PHASE || tr[t].fmt == F_ZPHASE;
@@ -1664,8 +1703,17 @@ static void print_marker(int m)
 }
 static void cmd_trace(int argc, char **argv)
 {
-    if (argc == 1) { for (int t = 0; t < 4; t++) print_trace(t); return; }
+    if (argc == 1) {
+        for (int t = 0; t < 4; t++) print_trace(t);
+        for (int k = 0; k < 4; k++) if (mem[k].on) { con_puts("stored "); con_putc((char)('A' + k)); con_puts(" from trace "); con_udec(mem[k].src + 1); con_putc(' '); con_puts(fmts[mem[k].fmt].cmd); con_puts(mem[k].ch ? " s21 " : " s11 "); con_udec(mem[k].n); con_puts(" points\r\n"); }
+        return;
+    }
+    if (argc == 3 && streq(argv[1], "clear") && argv[2][0] >= 'A' && argv[2][0] <= 'D') { mem[argv[2][0] - 'A'].on = 0; dirty |= D_GRAPH; con_puts("ok\r\n"); return; }
     int n; if (!decval(argv[1], &n) || n < 1 || n > 4) goto usage;
+    if (argc == 4 && streq(argv[2], "store") && argv[3][0] >= 'A' && argv[3][0] <= 'D') {
+        if (!tr[n - 1].on || fkind(n - 1) != K_RECT || !have_data) { con_puts("error: the trace must be shown in a rectangular format\r\n"); return; }
+        mem_store(argv[3][0] - 'A', n - 1); dirty |= D_GRAPH; con_puts("ok\r\n"); return;
+    }
     int keep = tr_act; tr_act = n - 1;
     trace_t *t = &tr[n - 1];
     for (int k = 2; k < argc; k++) {
@@ -1696,7 +1744,7 @@ static void cmd_trace(int argc, char **argv)
     tr_act = keep;
     dirty |= D_FULL; print_trace(n - 1); return;
 usage:
-    con_puts("usage: trace [1-4 [on|off|s11|s21|<format>|readout <mode>|scale <v>|ref <v>|refpos <0-8>|auto|active]...]\r\n"
+    con_puts("usage: trace [1-4 [on|off|s11|s21|<format>|readout <mode>|scale <v>|ref <v>|refpos <0-8>|auto|active]...] | trace <1-4> store A-D | trace clear A-D\r\n"
              "  formats: logmag phase delay smith swr r x z polar linear real imag q g b y zphase serc serl parr parx parc parl\r\n"
              "           s21sr s21sx s21hr s21hx s21q; smith readouts: lin log reim rjx rlc gjb glc rpjxp rplc (s21: lin log reim shunt series)\r\n");
 }

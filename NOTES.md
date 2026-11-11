@@ -826,13 +826,19 @@ Two first versions were wrong and fixed: the cable delay from the phase
 slope (biased when the line is not 50 ohm) and the notch frequency from a
 parabola (skewed); both now come from exact relations.
 
-## Stage 17: RAM for transform and stored traces (2026-11-11)
+## Stage 17: RAM, and stored traces A-D (2026-11-11)
 
 Static RAM down 6.3 KB: sweep points reordered (the 64-bit frequency after
 the floats: 32 bytes a point instead of 40, 3.2 KB) and the USB transmit
 ring 4 KB -> 1 KB. Capture unchanged: 541,184 cycles for 6600 samples
 (expected 541,118), inline DFT = reference DFT, HF repeatability median sd
 0.0011 dB (raw thru, 8 sweeps).
+
+**Stored traces A-D** (DISPLAY > TRACE > STORE A-D; `trace <n> store A-D`,
+`trace clear A-D`): the active rectangular trace's values at that moment,
+drawn dimmed in its source trace's colour and with that trace's scale while
+its format is unchanged; 6.4 KB. Checked: S21 stored as A, then a -6 dB
+S21 offset moved the live trace 6 dB below A.
 
 **Tried and reverted: a half-size cosine table** (cos(x + pi) = -cos x,
 4 KB more). The extra branch in the capture loop's three table lookups

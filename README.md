@@ -66,8 +66,8 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 18: TRANSFORM: time domain (low-pass impulse/step, band pass, Kaiser windows, span), checked against an ideal line | Done |
 | 19: TX POWER (stimulus level), measured: only level 0 is clean below 100 MHz | Done |
 | 20: CAL KIT: open/short/load/thru standards model, checked against a synthetic error box | Done |
-| 21: expert settings: band split, TCXO trim, VBAT offset, remember state, raw samples, RTC date and time, firmware dump | Done |
-| Later: the remaining stock menus (NOTES.md, stage 12), open/short level check above 1 GHz | Planned |
+| 21: expert settings: band split, TCXO trim, VBAT offset, remember state, raw samples, RTC date and time, firmware dump; brightness (DAC on the backlight control) | Done |
+| Later: open/short level check above 1 GHz, the near-integer MAX2871 states, low-band drift | Planned |
 
 ## Build and flash
 

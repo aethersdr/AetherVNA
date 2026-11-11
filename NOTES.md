@@ -955,6 +955,10 @@ cal kit, the touch map, flip.
   since 2000 in the battery-powered domain, which kept time across a reset
   (to the second against the host). SD files get the date and time.
   Whether it survives power-off depends on the VBAT pin: to check.
+- BRIGHTNESS (CONFIG): PA5, the backlight control, is also DAC channel 2.
+  The maintainer watched it step from 3.3 V to 0 V and it dimmed
+  gradually, so: 100% drives PA5 high as before, 80-20% are DAC levels on
+  0.6-2.0 V. `backlight level <10-100>`; kept by SAVE CONFIG.
 - DUMP FW: our image, 0x08004000 to its end (link.ld `_image_end`), to
   AVNAFW.BIN; read back byte-identical to the built image (152,532 bytes).
   Never the bootloader below it.

@@ -146,6 +146,19 @@ typedef struct { uint8_t on, fmt, ch, src, refpos; uint16_t n; float scale, ref;
 static mem_t mem[4];
 static float edelay, s21_offset, port_z = 50;      /* s, dB, ohm */
 static uint8_t remember;                             /* EXPERT > REMEMBER: save the state to slot 0 after a change */
+static uint8_t bright = 100;                         /* CONFIG > BRIGHTNESS, % */
+/* The backlight control (PA5) dims with an analog level (the maintainer watched
+ * 3.3 V to 0 V dim it gradually): PA5 is also DAC channel 2. 100% drives it
+ * high as a plain output; below, 20-80% map onto 0.6-2.0 V. */
+static void backlight_apply(void)
+{
+    if (bright >= 100) { REG(0x40007400u) &= ~(1u << 16); pin_out(P_BACKLIGHT, 1); return; }
+    REG(0x4002101Cu) |= 1u << 29;                    /* DAC clock */
+    pin_cfg(P_BACKLIGHT, 0x0);                       /* analog */
+    REG(0x40007400u) |= 1u << 16;                    /* channel 2 on */
+    uint32_t mv = 600 + (2000 - 600) * (uint32_t)bright / 100;
+    REG(0x40007414u) = mv * 4095 / 3300;
+}
 enum { MS_OFF, MS_LC, MS_CABLE, MS_SHUNTLC, MS_SERIESL, MS_XTAL, MS_N };
 static uint8_t meas_mode;
 static float meas_rl = 50, meas_vf = 0.66f;
@@ -459,7 +472,7 @@ static void line_text(int x, int y, const char *s, uint16_t fg, int xmax)
 /* ---------- menus ---------- */
 enum {
     MN_HOME, MN_DISPLAY, MN_TRACE, MN_F11, MN_F11B, MN_F11C, MN_S11SM, MN_F21, MN_F21B, MN_S21SM, MN_SCALE, MN_AVG,
-    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_MEAS, MN_TD, MN_TDWIN, MN_TXP, MN_KIT, MN_KITO, MN_KITS, MN_KITL, MN_EXPERT2, MN_N
+    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_MEAS, MN_TD, MN_TDWIN, MN_TXP, MN_KIT, MN_KITO, MN_KITS, MN_KITL, MN_EXPERT2, MN_BRIGHT, MN_N
 };
 enum {
     A_NONE, A_BACK,
@@ -480,7 +493,7 @@ enum {
     A_SAVE0, A_SAVEEND = A_SAVE0 + 7, A_RCL0 = A_SAVEEND, A_RCLEND = A_RCL0 + 7,
     A_SDS1P = A_RCLEND, A_SDS2P, A_SDSCREEN, A_SDSCAL, A_SDAUTO, A_FILE0, A_FILEEND = A_FILE0 + 8,
     A_MS0 = A_FILEEND, A_MSEND = A_MS0 + 6, A_MSRL = A_MSEND, A_MSVF,
-    A_TDON, A_TDIMP, A_TDSTEP, A_TDBP, A_TDW0, A_TDWEND = A_TDW0 + 3, A_TDSPAN = A_TDWEND, A_TXP0, A_TXPEND = A_TXP0 + 4, A_KC0 = A_TXPEND, A_KOD = A_KC0 + 4, A_KL0, A_KSD = A_KL0 + 4, A_KLR, A_KLL, A_KLD, A_KTD, A_KIDEAL, A_XSPLIT, A_XTCXO, A_XVBAT, A_XREMEMBER, A_XSAMPLES, A_XDUMPFW, A_XTIME,
+    A_TDON, A_TDIMP, A_TDSTEP, A_TDBP, A_TDW0, A_TDWEND = A_TDW0 + 3, A_TDSPAN = A_TDWEND, A_TXP0, A_TXPEND = A_TXP0 + 4, A_KC0 = A_TXPEND, A_KOD = A_KC0 + 4, A_KL0, A_KSD = A_KL0 + 4, A_KLR, A_KLL, A_KLD, A_KTD, A_KIDEAL, A_XSPLIT, A_XTCXO, A_XVBAT, A_XREMEMBER, A_XSAMPLES, A_XDUMPFW, A_XTIME, A_BR0, A_BREND = A_BR0 + 5,
     A_N
 };
 #define SUB(m) (A_SUB + (m))
@@ -504,9 +517,10 @@ static uint8_t menus[MN_N][MROWS] = {                /* MN_SDLOAD is filled from
     [MN_CFGSW]   = { A_POINTS, SUB(MN_TXP), A_BACK },
     [MN_CALMENU] = { SUB(MN_CAL), SUB(MN_SAVE), A_CRANGE, A_CRESET, A_CRESETALL, A_CAPPLY, A_CENH, A_BACK },
     [MN_CAL]     = { A_COPEN, A_CSHORT, A_CLOAD, A_CISOLN, A_CTHRU, A_CDONE, A_CDONERAM, SUB(MN_KIT), A_BACK },
-    [MN_CONFIG]  = { A_TOUCHCAL, A_TOUCHTEST, SUB(MN_EXPERT), A_SAVECFG, A_VERSION, A_BRIGHT, A_BACK },
+    [MN_CONFIG]  = { A_TOUCHCAL, A_TOUCHTEST, SUB(MN_EXPERT), A_SAVECFG, A_VERSION, SUB(MN_BRIGHT), A_BACK },
     [MN_EXPERT]  = { A_XSPLIT, A_XTCXO, A_XVBAT, A_XREMEMBER, A_XSAMPLES, A_XTIME, A_FLIP, SUB(MN_EXPERT2), A_BACK },
     [MN_EXPERT2] = { A_XDUMPFW, A_CLEARCFG, A_BOOTLOAD, A_BACK },
+    [MN_BRIGHT]  = { A_BR0, A_BR0 + 1, A_BR0 + 2, A_BR0 + 3, A_BR0 + 4, A_BACK },
     [MN_SAVE]    = { A_SAVE0, A_SAVE0 + 1, A_SAVE0 + 2, A_SAVE0 + 3, A_SAVE0 + 4, A_SAVE0 + 5, A_SAVE0 + 6, A_BACK },
     [MN_RECALL]  = { A_RCL0, A_RCL0 + 1, A_RCL0 + 2, A_RCL0 + 3, A_RCL0 + 4, A_RCL0 + 5, A_RCL0 + 6, A_BACK },
     [MN_SD]      = { A_SDS1P, A_SDS2P, A_SDSCREEN, A_SDSCAL, A_SDAUTO, SUB(MN_SDLOAD), A_BACK },
@@ -525,12 +539,12 @@ static const uint8_t menu_parent[MN_N] = {
     [MN_F11C] = MN_F11B, [MN_S11SM] = MN_F11, [MN_F21] = MN_DISPLAY, [MN_F21B] = MN_F21, [MN_S21SM] = MN_F21,
     [MN_SCALE] = MN_DISPLAY, [MN_AVG] = MN_DISPLAY, [MN_MARKER] = MN_HOME, [MN_SELMK] = MN_MARKER, [MN_OPS] = MN_MARKER,
     [MN_STIM] = MN_HOME, [MN_CFGSW] = MN_STIM, [MN_CALMENU] = MN_HOME, [MN_CAL] = MN_CALMENU, [MN_CONFIG] = MN_HOME,
-    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD, [MN_MEAS] = MN_HOME, [MN_TD] = MN_DISPLAY, [MN_TDWIN] = MN_TD, [MN_TXP] = MN_CFGSW, [MN_KIT] = MN_CAL, [MN_KITO] = MN_KIT, [MN_KITS] = MN_KIT, [MN_KITL] = MN_KIT, [MN_EXPERT2] = MN_EXPERT,
+    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD, [MN_MEAS] = MN_HOME, [MN_TD] = MN_DISPLAY, [MN_TDWIN] = MN_TD, [MN_TXP] = MN_CFGSW, [MN_KIT] = MN_CAL, [MN_KITO] = MN_KIT, [MN_KITS] = MN_KIT, [MN_KITL] = MN_KIT, [MN_EXPERT2] = MN_EXPERT, [MN_BRIGHT] = MN_CONFIG,
 };
 static const char *const menu_name[MN_N] = {
     "home", "display", "trace", "format_s11", "format_s11_more", "format_s11_more2", "s11_smith", "format_s21",
     "format_s21_more", "s21_smith", "scale", "avg", "marker", "select_marker", "operations", "stimulus", "cfg_sweep",
-    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load", "measure", "transform", "window", "tx_power", "cal_kit", "kit_open", "kit_short", "kit_load", "expert_more" };
+    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load", "measure", "transform", "window", "tx_power", "cal_kit", "kit_open", "kit_short", "kit_load", "expert_more", "brightness" };
 static const uint8_t avg_vals[8] = { AVG_AUTO, 1, 2, 4, 8, 16, 32, 64 };
 static uint8_t menu_open, menu_id, menu_sel;
 static char sd_files[8][13]; static int sd_nfiles; static uint8_t sd_autoname = 1;
@@ -561,7 +575,7 @@ static int item_label(int a, char *b)
     static const char *const sub_n[MN_N] = {
         "HOME", "DISPLAY", "TRACE", "FORMAT S11", ">MORE", ">MORE", "SMITH", "FORMAT S21", ">MORE", "SMITH",
         "SCALE", "AVG", "MARKER", "SELECT MK", "OPERATIONS", "STIMULUS", "CFG SWEEP", "CALIBRATE", "CALIBRATE",
-        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD", "MEASURE", "TRANSFORM", "WINDOW", "TX POWER", "CAL KIT", "OPEN", "SHORT", "LOAD", ">MORE" };
+        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD", "MEASURE", "TRANSFORM", "WINDOW", "TX POWER", "CAL KIT", "OPEN", "SHORT", "LOAD", ">MORE", "BRIGHTNESS" };
     char *p = b; *p = 0;
     if (a == A_BACK) { put_s(p, "< BACK"); return CK_NONE; }
     if (a >= A_SUB && a < A_SUB_END) { put_s(p, sub_n[a - A_SUB]); return CK_NONE; }
@@ -611,6 +625,12 @@ static int item_label(int a, char *b)
     case A_XSAMPLES: put_s(p, "SAMPLES"); return CK_NONE;
     case A_XDUMPFW: put_s(p, "DUMP FW"); return CK_NONE;
     case A_XTIME: put_s(p, "SET TIME"); return CK_NONE;
+    }
+    if (a >= A_BR0 && a < A_BREND) {
+        static const uint8_t lv[5] = { 100, 80, 60, 40, 20 };
+        p = put_u(p, lv[a - A_BR0], 1); put_s(p, "%"); return bright == lv[a - A_BR0] ? CK_ON : CK_OFF;
+    }
+    switch (a) {
     }
     if (a >= A_TXP0 && a < A_TXPEND) {
         static const char *const n[] = { "2 mA", "4 mA", "6 mA", "8 mA" };   /* above 100 MHz: -4, -1, +2, +5 dBm */
@@ -692,7 +712,6 @@ static int item_label(int a, char *b)
     case A_TOUCHTEST: put_s(p, "TOUCH TEST"); return CK_NONE;
     case A_SAVECFG: put_s(p, "SAVE CONFIG"); return CK_NONE;
     case A_VERSION: put_s(p, "VERSION"); return CK_NONE;
-    case A_BRIGHT: put_s(p, "BRIGHTNESS"); return CK_DIM;
     case A_FLIP: put_s(p, "FLIP"); return flipped ? CK_ON : CK_OFF;
     case A_CLEARCFG: put_s(p, confirming(a) ? "SURE?" : "CLEAR CFG"); return CK_NONE;
     case A_BOOTLOAD: put_s(p, confirming(a) ? "SURE?" : ">BOOTLOAD"); return CK_NONE;
@@ -1072,6 +1091,7 @@ static void act(int a)
     if (a >= A_KC0 && a <= A_KTD) { grid_show(G_KEYPAD, a); return; }
     if (a == A_XSPLIT || a == A_XTCXO || a == A_XVBAT) { grid_show(G_KEYPAD, a); return; }
     if (a == A_XTIME) { if (rtc_start() != 1) { say("no 32 kHz crystal: no clock", 3000); return; } grid_show(G_KEYPAD, a); return; }
+    if (a >= A_BR0 && a < A_BREND) { static const uint8_t lv[5] = { 100, 80, 60, 40, 20 }; bright = lv[a - A_BR0]; backlight_apply(); dirty |= D_MENU; return; }
     if (a == A_XREMEMBER) { remember ^= 1; say(remember ? "the state is saved to slot 0 20 s after a change (SAVE CONFIG keeps this)" : "remember off", 4000); dirty |= D_MENU; return; }
     if (a == A_XSAMPLES) { menu_open = 0; samples_show(); return; }
     if (a == A_XDUMPFW) {
@@ -1105,7 +1125,6 @@ static void act(int a)
     switch (a) {
     case A_BACK: if (menu_id == MN_HOME) menu_close(); else menu_show(menu_parent[menu_id]); return;
     case A_PAUSE: sweep_running = !sweep_running; if (!sweep_running) synth_all_off(); dirty |= D_MENU | D_STATUS; return;
-    case A_BRIGHT:
         say("not built yet: see the plan in NOTES.md (stage 12)", 3000); return;
     case A_CHANNEL: tr[tr_act].ch ^= 1; if (tr[tr_act].fmt >= F_S21SR && !tr[tr_act].ch) set_format(F_LOGMAG, 0); dirty |= D_FULL; return;
     case A_SCALEDIV: case A_REFVAL: case A_REFPOS: case A_EDELAY: case A_S21OFF: case A_PORTZ:
@@ -1847,7 +1866,7 @@ typedef struct {
     uint8_t tr_act, mk_act, mk_delta, mk_tracking, search_min, grid_values, dot_grid, avg;
     uint32_t jog_step; float edelay, s21_offset, port_z;
 } ui_state_t;
-typedef struct { float ax, bx, ay, by; uint8_t swap, flipped, touch_ok, remember; calkit_t kit; int32_t tcxo_ppb; int16_t vbat_mv, pad; } ui_cfg_t;
+typedef struct { float ax, bx, ay, by; uint8_t swap, flipped, touch_ok, remember; calkit_t kit; int32_t tcxo_ppb; int16_t vbat_mv; uint8_t bright, pad; } ui_cfg_t;
 int ui_state_size(void) { return sizeof(ui_state_t); }
 static void bcopy_(void *d, const void *s, int n) { uint8_t *a = d; const uint8_t *b = s; while (n--) *a++ = *b++; }
 void ui_state_get(uint8_t *b)
@@ -1871,7 +1890,7 @@ void ui_state_put(const uint8_t *b)
 }
 int ui_cfg_get(uint8_t *b)
 {
-    ui_cfg_t c = { tm_ax, tm_bx, tm_ay, tm_by, tm_swap, flipped, touch_ok, remember, calkit, tcxo_ppb, vbat_offset_mv, 0 };
+    ui_cfg_t c = { tm_ax, tm_bx, tm_ay, tm_by, tm_swap, flipped, touch_ok, remember, calkit, tcxo_ppb, vbat_offset_mv, bright, 0 };
     bcopy_(b, &c, sizeof c); return sizeof c;
 }
 void ui_cfg_put(const uint8_t *b, int n)
@@ -1881,6 +1900,7 @@ void ui_cfg_put(const uint8_t *b, int n)
     tm_ax = c.ax; tm_bx = c.bx; tm_ay = c.ay; tm_by = c.by; tm_swap = c.swap; touch_ok = c.touch_ok;
     if (c.kit.lr > 0) calkit = c.kit;
     remember = c.remember; tcxo_ppb = c.tcxo_ppb; vbat_offset_mv = c.vbat_mv;
+    bright = c.bright >= 10 && c.bright <= 100 ? c.bright : 100;
     if (c.flipped != flipped) { flipped = c.flipped; madctl ^= 0xC0; if (lcd_ready) lcd_cmd(0x36, &madctl, 1); }
 }
 void ui_redraw_full(void) { dirty |= D_FULL; td_gen++; }
@@ -1915,7 +1935,7 @@ static void ui_start(int sweep)
 {
     if (!lcd_ready) lcd_init();
     if (!sg_n) grids_init();
-    pin_set(P_BACKLIGHT, 1);
+    backlight_apply();
     ui_on = 1; mode = MODE_MAIN; clamp_markers();
     dirty = D_FULL; render(); drawn_count = sweep_count;
     if (sweep) sweep_running = 1;
@@ -2225,7 +2245,20 @@ void ui_command(int argc, char **argv)
         have_data = 1; con_puts("ok\r\n"); return;
     }
     if (streq(c, "backlight")) {
-        if (argc > 1) pin_set(P_BACKLIGHT, argv[1][0] == '1');
+        if (argc == 3 && streq(argv[1], "dac")) {        /* test: PA5 as DAC channel 2, an analog level */
+            int v; if (!decval(argv[2], &v) || v < 0 || v > 4095) { con_puts("usage: backlight dac <0-4095>\r\n"); return; }
+            REG(0x4002101Cu) |= 1u << 29;                /* DAC clock */
+            pin_cfg(P_BACKLIGHT, 0x0);                   /* analog */
+            REG(0x40007400u) |= 1u << 16;                /* channel 2 on, output buffer on */
+            REG(0x40007414u) = (uint32_t)v;              /* 12-bit right-aligned data */
+            con_puts("dac "); con_udec((uint32_t)v); con_puts(" ("); con_udec((uint32_t)v * 3300 / 4095); con_puts(" mV)\r\n");
+            return;
+        }
+        if (argc == 3 && streq(argv[1], "level")) {
+            int v; if (!decval(argv[2], &v) || v < 10 || v > 100) { con_puts("usage: backlight level <10-100>\r\n"); return; }
+            bright = (uint8_t)v; backlight_apply(); con_puts("level "); con_udec(bright); con_puts("\r\n"); return;
+        }
+        if (argc > 1) { REG(0x40007400u) &= ~(1u << 16); pin_out(P_BACKLIGHT, argv[1][0] == '1'); }
         con_puts(GPIO_ODT(P_BACKLIGHT >> 4) >> (P_BACKLIGHT & 15) & 1 ? "1\r\n" : "0\r\n");
         return;
     }

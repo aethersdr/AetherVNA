@@ -1,4 +1,4 @@
-/* LiteVNAAI firmware: hardware definitions and shared declarations.
+/* AetherVNA firmware: hardware definitions and shared declarations.
  * Copyright (C) 2026 the AetherSDR project. SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Register addresses from Artery's AT32F403A/407 Reference Manual (RM V2.06).

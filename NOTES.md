@@ -380,7 +380,7 @@ stock's procedure does.
 
 ## Stage 7: firmware on the device, full range (2026-11-10)
 
-`fw/` is the LiteVNAAI firmware proper (not the probe): the sweep runs on the
+`fw/` is the firmware proper (not the probe; named LiteVNAAI until 2026-11-11): the sweep runs on the
 device, a NanoVNA-D-compatible text console drives it, and it tunes
 50 kHz-6.3 GHz. Flashed through its own `bootloader` command
 (`host/reflash.sh`), hands-free; thru connected for every number below.
@@ -568,6 +568,9 @@ same temperature cancel most of it. Allow about 15 minutes after any
 high-band use before an HF calibration or measurement.
 
 ## Stage 11: first full calibration on this firmware (2026-11-11)
+
+The project was renamed AetherVNA the same day (repository, firmware name,
+version banner, USB product string); earlier sections keep the old name.
 
 SOLT on the HF plan (50 kHz-55.05 MHz, 1101 points at 50 kHz steps, four
 sweeps averaged per standard, 88 s per standard), solved by the host, then

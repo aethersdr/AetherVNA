@@ -1,4 +1,4 @@
-/* LiteVNAAI firmware: text console.
+/* AetherVNA firmware: text console.
  * Copyright (C) 2026 the AetherSDR project. SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Command names, arguments and output formats of the measurement commands
@@ -88,8 +88,8 @@ static int set_sweep(uint64_t start, uint64_t stop, int points)
 static void cmd_info(void)
 {
     con_puts("Board: LiteVNA 64 (AT32F403A, MAX2871 x2, MS5351M, 24 MHz TCXO)\r\n");
-    con_puts("Firmware: LiteVNAAI " GIT_VERSION " built " __DATE__ " " __TIME__ "\r\n");
-    con_puts("Source: github.com/aethersdr/LiteVNAAI (GPL-3.0-or-later)\r\n");
+    con_puts("Firmware: AetherVNA " GIT_VERSION " built " __DATE__ " " __TIME__ "\r\n");
+    con_puts("Source: github.com/aethersdr/AetherVNA (GPL-3.0-or-later)\r\n");
     con_puts("MCU: idcode 0x"); con_hex(DBG_IDCODE, 8); con_puts(" flash "); con_udec(F_SIZE); con_puts(" KB uid ");
     con_hex(UID(2), 8); con_hex(UID(1), 8); con_hex(UID(0), 8); nl();
     con_puts("Clock: "); con_puts(clock_on_tcxo() ? "TCXO (HEXT, PLL x2)" : "internal (HICK)"); nl();
@@ -184,7 +184,7 @@ void console_line(char *line)
     if (!argc_) return;
     const char *c = argv_[0];
     if (streq(c, "help")) cmd_help();
-    else if (streq(c, "version")) { con_puts("LiteVNAAI " GIT_VERSION " " __DATE__ " " __TIME__ "\r\n"); }
+    else if (streq(c, "version")) { con_puts("AetherVNA " GIT_VERSION " " __DATE__ " " __TIME__ "\r\n"); }
     else if (streq(c, "info")) cmd_info();
     else if (streq(c, "sweep")) {
         if (argc_ == 1) { put_u64(sweep_cfg.start); con_putc(' '); put_u64(sweep_cfg.stop); con_putc(' '); con_udec(sweep_cfg.points); nl(); return; }

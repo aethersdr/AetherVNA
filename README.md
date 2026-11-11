@@ -1,5 +1,7 @@
-LiteVNAAI: open, API-driven firmware for the LiteVNA
+AetherVNA: open, API-driven firmware for the LiteVNA
 ====================================================
+
+*Named AetherVNA until 2026-11-11; the old repository URL redirects here.*
 
 **Work in progress.** An independent, clean-room firmware for the LiteVNA 64
 vector network analyzer, maintained by the [AetherSDR](https://github.com/aethersdr/AetherSDR)
@@ -50,9 +52,9 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 ## Build and flash
 
 ```sh
-make -C fw                         # arm-none-eabi-gcc; fw/litevnaai.bin
+make -C fw                         # arm-none-eabi-gcc; fw/aethervna.bin
 # unit in its bootloader: `bootloader` on our console, or by hand (NOTES.md, Recovery)
-# then write fw/litevnaai.bin at 0x08004000 with a V2-protocol flasher;
+# then write fw/aethervna.bin at 0x08004000 with a V2-protocol flasher;
 # host/reflash.sh does both (set FLASH_PY to the flasher)
 ```
 
@@ -60,7 +62,7 @@ make -C fw                         # arm-none-eabi-gcc; fw/litevnaai.bin
 
 ## Console API
 
-USB CDC serial (`/dev/serial/by-id/usb-AetherSDR_LiteVNAAI_*`), plain text,
+USB CDC serial (`/dev/serial/by-id/usb-AetherSDR_AetherVNA_*`), plain text,
 `ch> ` prompt, one fact per line; `help` lists everything. The measurement
 commands follow NanoVNA-D so existing tools can drive it:
 

@@ -1,4 +1,4 @@
-/* LiteVNAAI firmware: GPIO. Copyright (C) 2026 the AetherSDR project.
+/* AetherVNA firmware: GPIO. Copyright (C) 2026 the AetherSDR project.
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "hw.h"
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Send one command to the LiteVNAAI console and print the reply.
+"""Send one command to the AetherVNA console and print the reply.
 SPDX-License-Identifier: GPL-3.0-or-later"""
 import glob, os, select, sys, time, tty
 def port():
-    p = sorted(glob.glob("/dev/serial/by-id/usb-AetherSDR_LiteVNA*-if00"))
-    if not p: sys.exit("no LiteVNAAI console")
+    p = sorted(glob.glob("/dev/serial/by-id/usb-AetherSDR_*VNA*-if00"))
+    if not p: sys.exit("no AetherVNA (or LiteVNAAI) console")
     return p[0]
 def cmd(line, timeout=30.0):
     fd = os.open(port(), os.O_RDWR | os.O_NOCTTY); tty.setraw(fd)

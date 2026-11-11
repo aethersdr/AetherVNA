@@ -1,4 +1,4 @@
-/* LiteVNAAI firmware: start-up, clocks, watchdog, boot guard, main loop.
+/* AetherVNA firmware: start-up, clocks, watchdog, boot guard, main loop.
  * Copyright (C) 2026 the AetherSDR project. SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Runs at 0x08004000 behind Zeenko's bootloader, which is never written.

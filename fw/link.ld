@@ -1,4 +1,4 @@
-/* LiteVNAAI firmware: AT32F403ACGT7 behind Zeenko's bootloader.
+/* AetherVNA firmware: AT32F403ACGT7 behind Zeenko's bootloader.
  * The bootloader owns 0x08000000-0x08003FFF and starts the application at
  * 0x08004000. RAM is limited to the 96 KB every AT32F403A has, whatever the
  * option bytes extend it to. SPDX-License-Identifier: GPL-3.0-or-later */

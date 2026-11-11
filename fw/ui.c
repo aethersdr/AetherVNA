@@ -1,4 +1,4 @@
-/* LiteVNAAI firmware: display, touch controller, jog and the on-screen UI.
+/* AetherVNA firmware: display, touch controller, jog and the on-screen UI.
  * Copyright (C) 2026 the AetherSDR project. SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Written from the MIPI DCS command set (the ST7796S/ILI9488 family the
@@ -199,7 +199,7 @@ static void test_card(void)
     text(W - 6 - text_w("TOP RIGHT", 2), 6, "TOP RIGHT", 0xFFFF, 0x0000, 2);
     text(6, H - 22, "BOTTOM LEFT", 0xFFFF, 0x0000, 2);
     text(W - 6 - text_w("BOTTOM RIGHT", 2), H - 22, "BOTTOM RIGHT", 0xFFFF, 0x0000, 2);
-    text(130, 40, "LiteVNAAI test card", 0xFFE0, 0x0000, 2);
+    text(130, 40, "AetherVNA test card", 0xFFE0, 0x0000, 2);
     static const char hx[] = "0123456789ABCDEF";
     char b[64], *p = put_s(b, "madctl 0x");
     *p++ = hx[madctl >> 4]; *p++ = hx[madctl & 15]; *p = 0;

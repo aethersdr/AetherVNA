@@ -1,4 +1,4 @@
-/* LiteVNAAI firmware: USB CDC-ACM console (polled), from the probe firmware.
+/* AetherVNA firmware: USB CDC-ACM console (polled), from the probe firmware.
  * Copyright (C) 2026 the AetherSDR project. SPDX-License-Identifier: GPL-3.0-or-later
  * Written from the AT32F403A reference manual (USBFS) and the USB 2.0 / CDC 1.2
  * specifications. A received line is held until the main loop takes it, so a
@@ -35,7 +35,7 @@ static const uint8_t cfg_desc[67] = {
     7, 5, 0x02, 0x02, DATA_SIZE, 0, 0,                 /* EP2 OUT bulk */
     7, 5, 0x81, 0x02, DATA_SIZE, 0, 0,                 /* EP1 IN bulk */
 };
-static const char *const strings[] = { "AetherSDR", "LiteVNAAI" };
+static const char *const strings[] = { "AetherSDR", "AetherVNA" };
 
 static uint8_t line_coding[7] = { 0x00, 0xC2, 0x01, 0x00, 0, 0, 8 };
 static const uint8_t *ep0_data; static uint16_t ep0_left; static uint8_t ep0_zlp;

@@ -1,4 +1,4 @@
-/* LiteVNAAI firmware: synthesizers, measurement, sweep and calibration.
+/* AetherVNA firmware: synthesizers, measurement, sweep and calibration.
  * Copyright (C) 2026 the AetherSDR project. SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
 #include <stdint.h>

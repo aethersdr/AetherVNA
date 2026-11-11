@@ -1,4 +1,4 @@
-/* LiteVNAAI firmware: synthesizers, coherent capture, sweep and calibration.
+/* AetherVNA firmware: synthesizers, coherent capture, sweep and calibration.
  * Copyright (C) 2026 the AetherSDR project. SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Written from: Silicon Labs AN619 (Si5351 registers, which the MS5351M

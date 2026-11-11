@@ -96,6 +96,11 @@ static void cmd_info(void)
     con_puts("Range: 50000 6300000000 Hz, points 1..401, IF 12000 Hz\r\n");
     con_puts("Calibration: "); con_puts(cal_on && cal_valid() ? "applied" : (cal_have ? "partial" : "none")); nl();
     con_puts("Sweeps: "); con_udec(sweep_count); con_puts(sweep_running ? " (running)" : " (paused)"); nl();
+    con_puts("High band: ");
+    if (vna_band() == 1) con_puts("on");
+    else if (!hb_used) con_puts("not used since power-on");
+    else { con_puts("off for "); con_udec((ms_ticks - hb_last_ms) / 1000); con_puts(" s"); }
+    nl();
 }
 
 static void cmd_cal(void)
@@ -212,7 +217,7 @@ void console_line(char *line)
         }
     }
     else if (streq(c, "cal")) cmd_cal();
-    else if (streq(c, "pause")) sweep_running = 0;
+    else if (streq(c, "pause")) { sweep_running = 0; synth_all_off(); }
     else if (streq(c, "resume")) sweep_running = 1;
     else if (streq(c, "settle")) {
         if (argc_ > 1) { uint64_t v; if (parse_u64(argv_[1], &v) && v <= 300) sweep_cfg.settle = (uint16_t)v; else { con_puts("usage: settle [0..300]\r\n"); return; } }

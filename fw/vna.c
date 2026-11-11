@@ -12,7 +12,7 @@
 #include "hw.h"
 #include "vna.h"
 
-sweep_cfg_t sweep_cfg = { 1000000ull, 1000000000ull, 101, 200, AVG_AUTO, GAIN_AUTO, 0, 1 };
+sweep_cfg_t sweep_cfg = { 50000ull, 55050000ull, 101, 200, AVG_AUTO, GAIN_AUTO, 0, 1 }   /* HF: never wakes the MAX2871s */;
 point_t pts[POINTS_MAX];
 volatile uint8_t sweep_running;
 uint32_t sweep_count;
@@ -195,7 +195,8 @@ static int mx_tune(uint64_t f, uint64_t *tuned)
 
 /* ---------- band and tuning ---------- */
 static int band = -1;                               /* 0 low (MS5351M), 1 high (MAX2871) */
-void synth_all_off(void) { ms_outputs_off(); mx_off(); band = -1; }
+int vna_band(void) { return band; }
+void synth_all_off(void) { if (band == 1) hb_last_ms = ms_ticks; ms_outputs_off(); mx_off(); band = -1; }
 uint32_t tune_settle_us = 0;                        /* extra delay after each retune (console: tsettle) */
 /* Measured on the bench unit (NOTES.md): after its PLL reset the MS5351M needs
  * ~3.5 ms to repeat and ~6 ms to settle within 0.001 dB; the MAX2871 pair
@@ -228,13 +229,20 @@ int gain_for(uint64_t f)
     return 3;                                       /* x8 */
 }
 static void gain_set(int g) { pin_set(P_GAIN_A, g & 1); pin_set(P_GAIN_B, g >> 1 & 1); }
+/* The MAX2871 pair heats the board: after 3 min of high-band sweeping the raw
+ * low band reads up to 0.048 dB high below 1.5 MHz, recovering over 10 min or
+ * more (NOTES.md, stage 10). Tools read how long it has been off from `info`. */
+uint8_t hb_used;
+uint32_t hb_last_ms;
 int tune(uint64_t f, uint64_t *tuned)
 {
     if (f < FREQ_MIN || f > FREQ_MAX) return -1;
     int b = f >= BAND_SPLIT;
+    if (b) { hb_used = 1; hb_last_ms = ms_ticks; }
     if (b != band) {
         if (b) { ms_outputs_off(); mx_init(); pin_set(P_BAND, 1); }
         else   { mx_off(); ms_outputs_on(); pin_set(P_BAND, 0); }
+        if (!b && band == 1) hb_last_ms = ms_ticks;   /* the moment it shut down */
         band = b;
         delay_us(SETTLE_BAND_US);
     }
@@ -392,6 +400,7 @@ int sweep_once(void)
     adc_init();
     int n = sweep_cfg.points;
     for (int i = 0; i < n; i++) { measure_point(i, sweep_freq(i)); service(); }
+    synth_all_off();                     /* idle cool: nothing runs between host sweeps */
     sweep_count++;
     return n;
 }

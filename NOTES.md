@@ -534,6 +534,39 @@ sweep takes 5.4 s (detector change alone). Near-integer points (600, 612 MHz)
 `retune` change (they change noise, not the expected value); `gain` and
 `bracket` still invalidate it.
 
+## Stage 10: the HF band (50 kHz-55 MHz) and the board's temperature (2026-11-10)
+
+The bench works at HF, so the low band (MS5351M, below 100 MHz) was tested on
+its own, 50 kHz-55.05 MHz, 101 points.
+
+| Test | Result | Kept |
+|---|---|---|
+| Averaging (avg 1/4/8, with and without retune) | sd 0.0044-0.005 dB in every case over a 3.5-minute run: the scatter there was a temperature step, not noise | avg x1 below 187.5 MHz (unchanged) |
+| IF gain x1.9 instead of x1 | no less noise; clips at 50 kHz; S21 ratio 0.02 dB different (calibration would absorb it) | x1 |
+| Drift, high band unused, 10 min | mean +0.0012 dB, single points within about +/-0.005 dB | |
+
+**The MAX2871 pair heats the board.** After 3 minutes of high-band sweeping
+the raw low band read up to 0.048 dB high below 1.5 MHz (650 kHz worst; less
+at 50 kHz and above 1.25 MHz), recovering to +0.011 dB 6 minutes later;
+after hours of the screen's 1 MHz-1 GHz sweep the step was about 0.1 dB at
+600 kHz. Keeping the pair powered with its outputs off in the low band
+("parked") does not help: the board kept warming for 13 minutes (+0.069 dB
+below 1.3 MHz, -0.011 dB at 1.3-55 MHz) and a 0.008 dB ripple at 2.25 MHz
+appeared, possibly a spur from the parked VCOs. So the rule is to keep the
+pair off for HF work:
+
+- The default sweep (the screen, from power-on) is 50 kHz-55.05 MHz,
+  101 points, which never wakes the pair.
+- A host sweep and `pause` shut every synthesizer down when they end.
+- `info` reports `High band: on`, `off for N s` or `not used since power-on`.
+- Note that `scan` sets the screen's sweep range (as in NanoVNA-D), so a
+  host scan above 100 MHz leaves the screen sweeping there; the bench driver
+  puts the range back when it closes.
+
+These are raw readings; a calibration and the measurement it corrects at the
+same temperature cancel most of it. Allow about 15 minutes after any
+high-band use before an HF calibration or measurement.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -560,5 +593,6 @@ recording (2026-11-10).
 - Stage 7: sweep, console and calibration on the device, 50 kHz-6.3 GHz.
 - Stage 8: display UI built, starts at power-on; to be confirmed by eye.
 - Stage 9: settling, averaging and the detector tuned for accuracy.
+- Stage 10: HF band tested; the MAX2871 pair's heat found and kept off for HF work.
   Next: saved settings and calibration in flash, touch input, an open/short
   level check above 1 GHz, the near-integer MAX2871 states.

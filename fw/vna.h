@@ -46,7 +46,10 @@ void vna_background(void);
 void vna_restart(void);
 
 uint64_t sweep_freq(int i);
-int  tune(uint64_t f, uint64_t *tuned);  /* 0 ok, <0 out of range */
+int  tune(uint64_t f, uint64_t *tuned);
+extern uint8_t hb_used;                  /* the MAX2871s ran since power-on */
+extern uint32_t hb_last_ms;              /* ms_ticks when they last ran */
+int  vna_band(void);                     /* -1 off, 0 low, 1 high */  /* 0 ok, <0 out of range */
 void synth_all_off(void);
 int  measure_point(int i, uint64_t f);   /* tunes, captures, stores pts[i] */
 int  sweep_once(void);                   /* returns points measured */

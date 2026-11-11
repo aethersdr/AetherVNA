@@ -567,6 +567,46 @@ These are raw readings; a calibration and the measurement it corrects at the
 same temperature cancel most of it. Allow about 15 minutes after any
 high-band use before an HF calibration or measurement.
 
+## Stage 11: first full calibration on this firmware (2026-11-11)
+
+SOLT on the HF plan (50 kHz-55.05 MHz, 1101 points at 50 kHz steps, four
+sweeps averaged per standard, 88 s per standard), solved by the host, then
+each standard refitted and swept again with the correction applied:
+
+| Check | 50 kHz-1.8 MHz | 1.8-30 MHz | 30-55 MHz |
+|---|---|---|---|
+| Load, \|S11\| worst | -61.3 dB | -66.4 dB | -72.0 dB |
+| Short, \|S11\| | -0.0106..+0.0008 dB | -0.0051..+0.0014 dB | -0.0032..+0.0022 dB |
+| Open, \|S11\| | -0.0015..+0.0017 dB | -0.0019..+0.0028 dB | -0.0023..+0.0030 dB |
+| Thru, S21 | +0.0009..+0.0211 dB | -0.0074..+0.0020 dB | -0.0048..+0.0004 dB |
+| Thru, phase | -0.035..+0.084 deg | -0.047..+0.057 deg | -0.150..+0.199 deg |
+
+The low-band error is a smooth hump, largest at 0.2-0.4 MHz and gone by
+1.5 MHz. Raw thru sweeps 1.5 h after the standards read up to +0.025 dB
+higher there than at calibration time. A reboot changed nothing (within
+0.003 dB). The high band was not used. The likely cause is temperature
+drift in the low-frequency path; a recalibration close to the measurement
+is the remedy below 1.5 MHz for now.
+
+**USB: a reply ending on a full packet.** The first check sweep hung waiting
+for the prompt. Linux cdc-acm queues 128-byte bulk reads, and a reply whose
+last packet was exactly 64 bytes left the read open until the next reply
+arrived. That was 2 stalls in about 30 401-point scans, both on the last row
+of the scan. The firmware now ends such a reply with a zero-length packet:
+84 scans, no stall.
+
+**Isolation is the receiver's noise floor.** Raw S21 with port 2's cable
+open is about -83 dB single-shot (median, 1-55 MHz) and falls exactly as
+noise does with averaging (three sweeps: 4.8-5 dB). No coherent leak shows
+above -95 dB. Screen, backlight and LCD off: no change (within 0.3 dB, three
+alternations). IF gain x1.9: 2.6 dB lower, x3 no further, so above x1.9 the
+front end's noise dominates, not the ADC. Each segment is 2000 samples at
+585 kS/s (3.4 ms). The host now takes the isolation term from the mean S21
+of the open, short and load (all three leave port 2 the same), which cuts
+the noise that term adds to every corrected S21 by 4.8 dB at no cost in
+time. The device's own `cal` still takes it from the load only (three
+stored arrays would cost 6 KB of RAM).
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -594,5 +634,8 @@ recording (2026-11-10).
 - Stage 8: display UI built, starts at power-on; to be confirmed by eye.
 - Stage 9: settling, averaging and the detector tuned for accuracy.
 - Stage 10: HF band tested; the MAX2871 pair's heat found and kept off for HF work.
+- Stage 11: first full calibration; USB zero-length-packet fix; isolation
+  found to be the noise floor; low-band temperature drift below 1.5 MHz.
   Next: saved settings and calibration in flash, touch input, an open/short
-  level check above 1 GHz, the near-integer MAX2871 states.
+  level check above 1 GHz, the near-integer MAX2871 states, the low-band
+  drift (the MCU's temperature sensor).

@@ -44,6 +44,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 8: display UI (test card, S11/S21 log-magnitude traces, jog marker, status), starts at power-on | Built; orientation and colours not yet confirmed by eye |
 | 9: settling, averaging and detector tuned for accuracy: 101 points 1 MHz-1 GHz in 2.6 s within 0.003 dB, 401 points to 6.3 GHz in 15.5 s within 0.03 dB | Done |
 | 10: HF focus: default sweep 50 kHz-55 MHz, synthesizers off between host sweeps, `info` reports how long the high band has been off (its heat moves HF readings) | Done |
+| 11: first full calibration and checks on the HF plan; USB replies ending on a full packet end with a zero-length packet (a scan could hang) | Done |
 | Later: saved settings and calibration in flash, touch input, Smith chart, open/short level check above 1 GHz | Planned |
 
 ## Build and flash

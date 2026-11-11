@@ -1,0 +1,82 @@
+/* LiteVNAAI firmware: synthesizers, measurement, sweep and calibration.
+ * Copyright (C) 2026 the AetherSDR project. SPDX-License-Identifier: GPL-3.0-or-later */
+#pragma once
+#include <stdint.h>
+
+#define FREQ_MIN     50000u
+#define FREQ_MAX     6300000000ull
+#define BAND_SPLIT   100000000u          /* MS5351M below, MAX2871 pair from here */
+#define POINTS_MAX   401
+#define IF_HZ        12000u
+#define SEG_N        2000                /* 41 IF cycles at 24 MHz / 41 */
+#define IF_STEP      41                  /* (41 * i) mod 2000 is the IF phase index */
+
+typedef struct { float re, im; } cpx;
+
+typedef struct {
+    uint64_t start, stop;
+    uint16_t points;
+    uint16_t settle;                     /* samples discarded after each switch */
+    uint8_t  avg;
+    uint8_t  gain;                       /* IF gain: GAIN_AUTO or a fixed code 0..3 */
+    uint8_t  bracket;                    /* 1: second reference after port 2, interpolated */
+} sweep_cfg_t;
+#define GAIN_AUTO 0xFF
+int  gain_for(uint64_t f);               /* code: bit0 PB14 (x3), bit1 PB15 (x1.9); both x8 */
+
+/* Per point: raw ratios (port / reference), the frequency actually tuned, flags. */
+enum { PF_CLIP = 1, PF_LOWREF = 2, PF_RANGE = 4 };
+typedef struct {
+    cpx s11, s21;
+    float ref;                           /* |reference| in ADC counts */
+    uint64_t f_tuned;
+    uint8_t flags;
+} point_t;
+
+extern sweep_cfg_t sweep_cfg;
+extern point_t pts[POINTS_MAX];
+extern volatile uint8_t sweep_running;  /* continuous sweeping for the display */
+extern uint32_t sweep_count;
+
+void vna_init(void);
+void vna_background(void);
+
+uint64_t sweep_freq(int i);
+int  tune(uint64_t f, uint64_t *tuned);  /* 0 ok, <0 out of range */
+void synth_all_off(void);
+int  measure_point(int i, uint64_t f);   /* tunes, captures, stores pts[i] */
+int  sweep_once(void);                   /* returns points measured */
+
+/* low level, for diagnostics */
+int  ms_write(uint8_t reg, const uint8_t *v, int n);
+int  ms_read(uint8_t reg, uint8_t *v, int n);
+void mx_write(uint8_t le, uint32_t w);
+int  capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip);
+void dft3(const uint16_t *buf, int settle, cpx out[4]);
+extern uint16_t adc_buf[];
+float vbat_volts(void);
+void vna_adc_init(void);
+
+/* calibration (one-path SOLT; ideal standards) */
+enum { CAL_OPEN, CAL_SHORT, CAL_LOAD, CAL_THRU, CAL_N };
+extern uint8_t cal_have;                 /* bit per standard measured */
+extern uint8_t cal_on;                   /* apply when valid */
+int  cal_valid(void);
+int  cal_measure(int which);
+int  cal_solve(void);
+void cal_reset(void);
+void cal_apply(int i, cpx *s11, cpx *s21);
+int  cal_std_get(int which, int i, cpx *s11, cpx *s21);   /* raw standard as measured */
+int  cal_std_put(int which, int i, cpx s11, cpx s21);     /* load one (for the current sweep) */
+int  cal_terms_get(int i, cpx t[6]);                      /* e00 e11 de e30 e22 e10e32 */
+
+/* complex helpers */
+static inline cpx c_mk(float r, float i) { cpx z = { r, i }; return z; }
+static inline cpx c_add(cpx a, cpx b) { return c_mk(a.re + b.re, a.im + b.im); }
+static inline cpx c_sub(cpx a, cpx b) { return c_mk(a.re - b.re, a.im - b.im); }
+static inline cpx c_mul(cpx a, cpx b) { return c_mk(a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re); }
+static inline cpx c_div(cpx a, cpx b) { float d = b.re * b.re + b.im * b.im; return c_mk((a.re * b.re + a.im * b.im) / d, (a.im * b.re - a.re * b.im) / d); }
+static inline float c_abs2(cpx a) { return a.re * a.re + a.im * a.im; }
+float c_abs(cpx a);
+float c_db(cpx a);
+float c_deg(cpx a);

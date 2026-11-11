@@ -1,0 +1,13 @@
+# LiteVNAAI firmware. SPDX-License-Identifier: GPL-3.0-or-later
+CC = arm-none-eabi-gcc
+GIT_VERSION := $(shell git describe --always --dirty --tags 2>/dev/null || echo unknown)
+CFLAGS = -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -O2 -ffreestanding -nostdlib \
+         -Wall -Wextra -Werror -fno-builtin -fsingle-precision-constant -DGIT_VERSION='"$(GIT_VERSION)"'
+SRC = main.c gpio.c usb.c console.c vna.c ui.c font5x7.c
+litevnaai.bin: litevnaai.elf
+	arm-none-eabi-objcopy -O binary $< $@
+	arm-none-eabi-size $<
+litevnaai.elf: $(SRC) hw.h vna.h ui.h link.ld
+	$(CC) $(CFLAGS) -T link.ld -o $@ $(SRC) -lgcc
+clean:
+	rm -f litevnaai.elf litevnaai.bin

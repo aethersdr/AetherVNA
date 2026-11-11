@@ -378,6 +378,89 @@ Measuring the thru first and checking it after the caps adds the SMA
 re-mating error (0.05-0.08 dB near 1 GHz); the checks above avoid it, as
 stock's procedure does.
 
+## Stage 7: firmware on the device, full range (2026-11-10)
+
+`fw/` is the LiteVNAAI firmware proper (not the probe): the sweep runs on the
+device, a NanoVNA-D-compatible text console drives it, and it tunes
+50 kHz-6.3 GHz. Flashed through its own `bootloader` command
+(`host/reflash.sh`), hands-free; thru connected for every number below.
+
+**Safety built in:** watchdog from the first instruction (about 2 s); after
+two watchdog resets in a row the firmware hands over to Zeenko's bootloader,
+so a broken image can be replaced from the host. If a USB host is seen but
+the console is not configured within 10 s, it also hands over. `bootloader`
+and `reset` refuse while the jog reads pressed (Artery's ROM bootloader hazard).
+
+**Settling, measured** (sweep-to-sweep, thru, 4 sweeps):
+
+| Band | Settle after retune | Result |
+|---|---|---|
+| MS5351M (< 100 MHz) | 1.5 ms | 0.097 dB worst |
+| | 3.5 ms | 0.008 dB |
+| | 6.5 ms / 16.5 ms | 0.006 / 0.007 dB (no further gain) |
+| MAX2871 (>= 100 MHz) | 300 us; +1 ms or +5 ms extra changed nothing | noise-limited, see below |
+
+Chosen: 4 ms low band, 300 us high band, 10 ms at a band change.
+
+**Range, raw thru levels** (`flags`, IF gain x1): reference 1557 counts at
+50 kHz, 651 at 1 MHz, about 200 at 1-3 GHz, 40-50 at 5.5-6.3 GHz. Every point
+from 50 kHz to 6.3 GHz tunes and reads without clip or low-reference flags;
+6.0-6.3 GHz is beyond the MAX2871's 6 GHz specification and works on this
+unit. Tuned frequency error is at most 3 kHz (6 kHz VCO steps at divider 1),
+reported per point by `flags`.
+
+**IF gain** (PB14 x3, PB15 x1.9, both x8): the S21 ratio is the same at every
+gain within 0.03 dB wherever nothing clips, so a fixed gain per frequency
+keeps a calibration valid. Clipping starts near 2000 counts. Table
+(`gain auto`): x1 below 100 MHz, x1.9 to 2.8 GHz, x3 to 5.3 GHz, x8 above,
+keeping the largest segment (port 2 on the thru) at about 1100-1400 counts.
+Validated with the thru only; an open/short `flags` pass above 1 GHz is still
+to do. Extra gain did not improve repeatability: the top band is not ADC-noise
+limited.
+
+**Repeatability, final defaults** (5 sweeps, deviation from the mean, S21 thru):
+
+| Sweep | Time | Max | Median sd | Phase sd (median) |
+|---|---|---|---|---|
+| 1 MHz-1 GHz, 101 pts | 1.88 s | 0.0042 dB | 0.0009 dB | 0.025 deg |
+| 50 kHz-100 MHz (in a 401-pt full sweep) | | 0.0043 dB | 0.0011 dB | 0.008 deg |
+| 0.1-1.5 GHz | | 0.0053 dB | 0.0010 dB | 0.039 deg |
+| 1.5-3 GHz | | 0.0146 dB | 0.0022 dB | 0.108 deg |
+| 3-5 GHz | | 0.0136 dB | 0.0032 dB | 0.204 deg |
+| 5-6.3 GHz | | 0.0520 dB | 0.0065 dB | 0.273 deg |
+| 50 kHz-6.3 GHz, 401 pts | 7.18 s | 0.052 dB | 0.0027 dB | |
+
+Above 3 GHz the scatter is synthesizer phase noise: averaging reduces it as
+random noise would, extra settling does not, and a second reference capture
+after port 2 (`bracket 1`, interpolated) cuts the median by about 25 % for
+30 % more time, the same as averaging. `bracket` stays off by default.
+
+**Known limitation, MAX2871 near-integer fractions:** at output dividers 2-4
+(about 190 MHz-1.5 GHz) a stimulus fraction word near zero (F = 0, and
+intermittently small values such as 4, 8, 16, 32, 64 or -4, -16 of M = 4000)
+lands in one of several states at each retune: 0.01-0.02 dB sd that does not
+average down within a tuning and persists until the next retune. 300, 600,
+612 and 1200 MHz are examples; 301 and 601 MHz are clean. The sigma-delta
+low-spur modes (R2 SDN = 10, 11) do not change it. A 1-2 MHz grid like the
+101-point sweep above misses most of them. Open: integer mode for F = 0, or
+re-tuning with a different modulus at those points.
+
+**Frequency axis:** raw thru group delay -1.13 ns, constant from 0.5 to
+6.3 GHz (band means -1.08 to -1.17 ns) with no phase step at the divider
+boundaries (0.75, 1.5, 3 GHz); negative because the raw ratio's reference path
+is longer than the thru.
+
+**Calibration maths on the device:** the host's stage-6 standards (60 points)
+loaded with `cal put`, solved on the device, read back with `cal get terms`:
+every error term matches the host's within 6e-5 relative (float precision);
+the device's correction of a live sweep matches the host formula within 2e-6.
+A full SOLT check with real standards needs the maintainer's caps.
+
+**Console additions:** `gain [auto|0..3]`, `bracket [0|1]`,
+`cal get <open|short|load|thru|terms>`, `cal put <std> <i> s11re s11im s21re s21im`
+(a host can save and restore a calibration), `flags` (tuned frequency,
+reference level, status per point), `raw <freq>` (samples and the device DFT).
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -400,5 +483,7 @@ recording (2026-11-10).
 - Stage 2c: touch, display, backlight and jog mapped; MAX2871 not found by
   MUX/LD response.
 - Stage 6: repeatability matches or beats stock (thru +/-0.006 dB, short
-  +/-0.0046 dB, 1 MHz-1 GHz). Next: the sweep loop on the device, the console
-  API, then the full 50 kHz-6.3 GHz range.
+  +/-0.0046 dB, 1 MHz-1 GHz).
+- Stage 7: sweep, console and calibration on the device, 50 kHz-6.3 GHz.
+  Next: the display UI; an open/short level check above 1 GHz; the
+  near-integer MAX2871 states.

@@ -1,3 +1,4 @@
 *.elf
 *.bin
 docs/vendor/
+__pycache__/

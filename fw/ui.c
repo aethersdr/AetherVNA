@@ -355,7 +355,7 @@ static void line_text(int x, int y, const char *s, uint16_t fg, int xmax)
 /* ---------- menus ---------- */
 enum {
     MN_HOME, MN_DISPLAY, MN_TRACE, MN_F11, MN_F11B, MN_F11C, MN_S11SM, MN_F21, MN_F21B, MN_S21SM, MN_SCALE, MN_AVG,
-    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_N
+    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_N
 };
 enum {
     A_NONE, A_BACK,
@@ -374,11 +374,12 @@ enum {
     A_CSAVE, A_CRANGE, A_CRESET, A_CRESETALL, A_CAPPLY, A_CENH,
     A_TOUCHCAL, A_TOUCHTEST, A_SAVECFG, A_VERSION, A_BRIGHT, A_FLIP, A_CLEARCFG, A_BOOTLOAD,
     A_SAVE0, A_SAVEEND = A_SAVE0 + 7, A_RCL0 = A_SAVEEND, A_RCLEND = A_RCL0 + 7,
-    A_N
+    A_SDS1P = A_RCLEND, A_SDS2P, A_SDSCREEN, A_SDSCAL, A_SDAUTO, A_FILE0, A_FILEEND = A_FILE0 + 8,
+    A_N = A_FILEEND
 };
 #define SUB(m) (A_SUB + (m))
-static const uint8_t menus[MN_N][MROWS] = {
-    [MN_HOME]    = { SUB(MN_DISPLAY), SUB(MN_MARKER), SUB(MN_STIM), SUB(MN_CALMENU), SUB(MN_RECALL), A_MEASURE, A_SDCARD, SUB(MN_CONFIG), A_PAUSE },
+static uint8_t menus[MN_N][MROWS] = {                /* MN_SDLOAD is filled from the card */
+    [MN_HOME]    = { SUB(MN_DISPLAY), SUB(MN_MARKER), SUB(MN_STIM), SUB(MN_CALMENU), SUB(MN_RECALL), A_MEASURE, SUB(MN_SD), SUB(MN_CONFIG), A_PAUSE },
     [MN_DISPLAY] = { SUB(MN_TRACE), SUB(MN_F11), SUB(MN_F21), A_CHANNEL, SUB(MN_SCALE), A_TRANSFORM, SUB(MN_AVG), A_PORTZ, A_BACK },
     [MN_TRACE]   = { A_TRACE0, A_TRACE0 + 1, A_TRACE0 + 2, A_TRACE0 + 3, A_STORE, A_BACK },
     [MN_F11]     = { A_F0 + F_LOGMAG, A_F0 + F_PHASE, A_F0 + F_DELAY, SUB(MN_S11SM), A_F0 + F_SWR, A_F0 + F_R, A_F0 + F_X, A_F0 + F_Z, SUB(MN_F11B), A_BACK },
@@ -401,20 +402,23 @@ static const uint8_t menus[MN_N][MROWS] = {
     [MN_EXPERT]  = { A_FLIP, A_CLEARCFG, A_BOOTLOAD, A_BACK },
     [MN_SAVE]    = { A_SAVE0, A_SAVE0 + 1, A_SAVE0 + 2, A_SAVE0 + 3, A_SAVE0 + 4, A_SAVE0 + 5, A_SAVE0 + 6, A_BACK },
     [MN_RECALL]  = { A_RCL0, A_RCL0 + 1, A_RCL0 + 2, A_RCL0 + 3, A_RCL0 + 4, A_RCL0 + 5, A_RCL0 + 6, A_BACK },
+    [MN_SD]      = { A_SDS1P, A_SDS2P, A_SDSCREEN, A_SDSCAL, A_SDAUTO, SUB(MN_SDLOAD), A_BACK },
+    [MN_SDLOAD]  = { A_FILE0, A_FILE0 + 1, A_FILE0 + 2, A_FILE0 + 3, A_FILE0 + 4, A_FILE0 + 5, A_FILE0 + 6, A_FILE0 + 7, A_BACK },
 };
 static const uint8_t menu_parent[MN_N] = {
     [MN_HOME] = MN_HOME, [MN_DISPLAY] = MN_HOME, [MN_TRACE] = MN_DISPLAY, [MN_F11] = MN_DISPLAY, [MN_F11B] = MN_F11,
     [MN_F11C] = MN_F11B, [MN_S11SM] = MN_F11, [MN_F21] = MN_DISPLAY, [MN_F21B] = MN_F21, [MN_S21SM] = MN_F21,
     [MN_SCALE] = MN_DISPLAY, [MN_AVG] = MN_DISPLAY, [MN_MARKER] = MN_HOME, [MN_SELMK] = MN_MARKER, [MN_OPS] = MN_MARKER,
     [MN_STIM] = MN_HOME, [MN_CFGSW] = MN_STIM, [MN_CALMENU] = MN_HOME, [MN_CAL] = MN_CALMENU, [MN_CONFIG] = MN_HOME,
-    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME,
+    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD,
 };
 static const char *const menu_name[MN_N] = {
     "home", "display", "trace", "format_s11", "format_s11_more", "format_s11_more2", "s11_smith", "format_s21",
     "format_s21_more", "s21_smith", "scale", "avg", "marker", "select_marker", "operations", "stimulus", "cfg_sweep",
-    "calibrate", "calibrate_standards", "config", "expert", "save", "recall" };
+    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load" };
 static const uint8_t avg_vals[8] = { AVG_AUTO, 1, 2, 4, 8, 16, 32, 64 };
 static uint8_t menu_open, menu_id, menu_sel;
+static char sd_files[8][13]; static int sd_nfiles; static uint8_t sd_autoname = 1;
 static int menu_len(int id) { int n = 0; while (n < MROWS && menus[id][n]) n++; return n; }
 static uint32_t confirm_t; static uint8_t confirm_a;  /* actions that ask twice */
 static int confirming(int a) { return confirm_a == a && ms_ticks - confirm_t < 3000; }
@@ -425,7 +429,7 @@ static int item_label(int a, char *b)
     static const char *const sub_n[MN_N] = {
         "HOME", "DISPLAY", "TRACE", "FORMAT S11", ">MORE", ">MORE", "SMITH", "FORMAT S21", ">MORE", "SMITH",
         "SCALE", "AVG", "MARKER", "SELECT MK", "OPERATIONS", "STIMULUS", "CFG SWEEP", "CALIBRATE", "CALIBRATE",
-        "CONFIG", "EXPERT", "SAVE", "RECALL" };
+        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD" };
     char *p = b; *p = 0;
     if (a == A_BACK) { put_s(p, "< BACK"); return CK_NONE; }
     if (a >= A_SUB && a < A_SUB_END) { put_s(p, sub_n[a - A_SUB]); return CK_NONE; }
@@ -448,6 +452,19 @@ static int item_label(int a, char *b)
         if (!k) put_s(p, "AUTO"); else if (k == 1) put_s(p, "NONE"); else { p = put_u(p, avg_vals[k], 1); put_s(p, "x"); }
         return sweep_cfg.avg == avg_vals[k] ? CK_ON : CK_NONE;
     }
+    if (a >= A_FILE0 && a < A_FILEEND) {
+        int k = a - A_FILE0;
+        if (k >= sd_nfiles) { put_s(p, "-"); return CK_DIM; }
+        for (int j = 0; sd_files[k][j] && sd_files[k][j] != '.'; j++) *p++ = sd_files[k][j];
+        *p = 0; return CK_NONE;
+    }
+    switch (a) {
+    case A_SDS1P: put_s(p, "SAVE S1P"); return CK_NONE;
+    case A_SDS2P: put_s(p, "SAVE S2P"); return CK_NONE;
+    case A_SDSCREEN: put_s(p, "SAVE SCREEN"); return CK_DIM;
+    case A_SDSCAL: put_s(p, "SAVE CAL"); return CK_NONE;
+    case A_SDAUTO: put_s(p, "AUTONAME"); return sd_autoname ? CK_ON : CK_OFF;
+    }
     if (a >= A_SAVE0 && a < A_RCLEND) {
         int n = a >= A_RCL0 ? a - A_RCL0 : a - A_SAVE0;
         p = put_s(p, a >= A_RCL0 ? "RECALL " : "SAVE "); put_u(p, n, 1);
@@ -461,7 +478,6 @@ static int item_label(int a, char *b)
     switch (a) {
     case A_PAUSE: put_s(p, "PAUSE"); return sweep_running ? CK_OFF : CK_ON;
     case A_MEASURE: put_s(p, "MEASURE"); return CK_DIM;
-    case A_SDCARD: put_s(p, "SD CARD"); return CK_DIM;
     case A_STORE: put_s(p, "STORE TRACE"); return CK_DIM;
     case A_CHANNEL: put_s(p, tr[tr_act].ch ? "CHAN S21" : "CHAN S11"); return CK_NONE;
     case A_SCALEDIV: put_s(p, "SCALE/DIV"); return CK_NONE;
@@ -777,7 +793,7 @@ static void set_format(int f, int ch)
 }
 static void act(int a)
 {
-    if (a >= A_SUB && a < A_SUB_END) { menu_show(a - A_SUB); return; }
+    if (a >= A_SUB && a < A_SUB_END && a != SUB(MN_SDLOAD)) { menu_show(a - A_SUB); return; }
     if (a >= A_TRACE0 && a <= A_TRACE3) {
         int t = a - A_TRACE0;
         if (t == tr_act) tr[t].on = !tr[t].on; else { tr[t].on = 1; tr_act = t; }
@@ -788,6 +804,30 @@ static void act(int a)
         set_format(F_SMITH, menu_id == MN_S21SM); tr[tr_act].smode = a - A_SM0; dirty |= D_MENU; return;
     }
     if (a >= A_AVG0 && a < A_AVGEND) { sweep_cfg.avg = avg_vals[a - A_AVG0]; dirty |= D_MENU; return; }
+    if (a == SUB(MN_SDLOAD)) {
+        say("reading the card...", 10000); draw_status();
+        sd_nfiles = sd_list("CAL", sd_files, 8);
+        if (sd_nfiles < 0) { sd_nfiles = 0; say("no card, or not FAT32", 3000); return; }
+        for (int k = 0; k < MROWS; k++) menus[MN_SDLOAD][k] = k < sd_nfiles ? A_FILE0 + k : k == sd_nfiles ? A_BACK : 0;
+        say(sd_nfiles ? "choose a calibration" : "no .CAL files on the card", 3000);
+        menu_show(MN_SDLOAD); return;
+    }
+    if (a >= A_FILE0 && a < A_FILEEND) {
+        int k = a - A_FILE0; if (k >= sd_nfiles) return;
+        int r = sd_load_cal(sd_files[k]);
+        say(r ? "could not load that file" : "calibration and its sweep loaded", 3000);
+        if (!r) menu_close();
+        return;
+    }
+    if (a == A_SDS1P || a == A_SDS2P || a == A_SDSCAL) {
+        char name[13], b[48]; say("writing to the card...", 10000); draw_status();
+        int r = a == A_SDSCAL ? sd_save_cal(sd_autoname, name) : sd_save_touchstone(a == A_SDS2P, sd_autoname, name);
+        if (r == -3) say("no calibration to save", 3000);
+        else if (r) say("could not write to the card", 3000);
+        else { char *q = put_s(b, "saved "); put_s(q, name); say(b, 4000); }
+        return;
+    }
+    if (a == A_SDAUTO) { sd_autoname ^= 1; dirty |= D_MENU; return; }
     if (a >= A_SAVE0 && a < A_SAVEEND) {
         int n = a - A_SAVE0; say("saving...", 10000); draw_status();
         say(store_save(n) ? "error: flash write failed" : "saved", 3000); dirty |= D_MENU; return;
@@ -806,7 +846,7 @@ static void act(int a)
     switch (a) {
     case A_BACK: if (menu_id == MN_HOME) menu_close(); else menu_show(menu_parent[menu_id]); return;
     case A_PAUSE: sweep_running = !sweep_running; if (!sweep_running) synth_all_off(); dirty |= D_MENU | D_STATUS; return;
-    case A_SDCARD: case A_STORE: case A_TRANSFORM: case A_CSTD: case A_BRIGHT: case A_TXPOWER: case A_MEASURE:
+    case A_SDSCREEN: case A_STORE: case A_TRANSFORM: case A_CSTD: case A_BRIGHT: case A_TXPOWER: case A_MEASURE:
         say("not built yet: see the plan in NOTES.md (stage 12)", 3000); return;
     case A_CHANNEL: tr[tr_act].ch ^= 1; if (tr[tr_act].fmt >= F_S21SR && !tr[tr_act].ch) set_format(F_LOGMAG, 0); dirty |= D_FULL; return;
     case A_SCALEDIV: case A_REFVAL: case A_REFPOS: case A_EDELAY: case A_S21OFF: case A_PORTZ:

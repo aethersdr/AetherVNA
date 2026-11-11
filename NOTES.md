@@ -683,7 +683,7 @@ code.
   Phase 2 (save/recall, save/clear config) is stage 14. Still to come:
   3) measure modes (L/C match, cable, shunt LC, series L, crystal, Rl);
   4) transform (time domain) and stored traces (need RAM); 5) SD card
-  files (the driver and FAT32 are stage 13); 6) brightness (PA5 PWM?), TX power, calibration standard model,
+  files are stage 15 (SAVE SCREEN still to do); 6) brightness (PA5 PWM?), TX power, calibration standard model,
   expert settings.
 - Console mirror: `trace`, `marker`, `display`, `ui state|tap|jog|menu|select`, `touch cal|map`.
   `lcd capture` redraws the screen while streaming every window's pixels
@@ -765,6 +765,31 @@ SERIES Z, PAUSE, GRID VALS, ENH RESP, FLIP); the legend keeps the full
 format names. `ui labels` checks every label against its button: 181, none
 too wide.
 
+## Stage 15: SD CARD menu files (2026-11-11)
+
+SD CARD (home menu): SAVE S1P, SAVE S2P, SAVE CAL, AUTONAME, LOAD; SAVE
+SCREEN is still dimmed (no framebuffer: a BMP needs the screen re-rendered
+through a temporary file, to do). Console: `sd save s1p|s2p|cal [fixed]`,
+`sd load <file>`, `sd cat <file>`, `sd rm <file>`.
+
+- Names: AUTONAME numbers them (AVNA0001.S1P, one above the highest on the
+  card); off, AETHER.S1P etc. is replaced (the old chain freed first).
+- Touchstone v1, `# Hz S RI R 50`, the current sweep with the calibration
+  applied when it is valid (the header says calibrated or UNCALIBRATED);
+  S2P writes S12 and S22 as 0 and says so (one-path instrument).
+- .CAL: binary, exact (magic AVNACAL1, the measurement settings, the
+  standards for the sweep they were measured on); LOAD sets that sweep and
+  re-solves. A file from a different settings layout is refused.
+- FAT32 writing streams any length: clusters taken as bytes need them (no
+  spare cluster at a boundary), linked in both FATs, FSInfo's free count
+  kept; deletion frees the chain.
+
+Checked on the maintainer's test card: S1P 3,844 bytes and S2P 7,370 bytes
+(two clusters) read back as written; a synthetic calibration saved to
+AVNA0001.CAL, cleared and loaded gave identical error terms at every point;
+the LOAD menu lists the card's .CAL files. The test files were then
+removed: 4 files and 67 clusters again, PATTERN.BIN and VERIFY.TXT intact.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -804,4 +829,6 @@ recording (2026-11-10).
   mirror and screen capture; menu tree after the stock map, phase 1.
 - Stage 13: microSD on SPI1 with chip select PB9; FAT32 read and write
   checked against the maintainer's test card.
-- Stage 14: save/recall slots 0-6 and config in flash; one menu font size. Next: touch map, settings and calibration in flash.
+- Stage 14: save/recall slots 0-6 and config in flash; one menu font size.
+- Stage 15: SD CARD menu: S1P/S2P Touchstone, calibration files and LOAD.
+  Next: SAVE SCREEN (BMP), measure modes, transform and stored traces. Next: touch map, settings and calibration in flash.

@@ -18,6 +18,7 @@
 #include "hw.h"
 #include "vna.h"
 #include "lcd.h"
+#include "ui.h"
 
 static uint8_t sd_cs = 0x19;                         /* PB9 (stage 13); `sd probe` finds it again */
 static uint8_t sd_ok, sd_hc;                         /* initialised; block addressing */
@@ -381,6 +382,259 @@ static int fat_write_small(const char *name, const char *text)
     return 0;
 }
 
+/* ---------- files: streaming write, delete, streaming read ---------- */
+static uint32_t free_hint = 3;
+static uint32_t alloc_cluster(void)                  /* the next free cluster from the hint; 0 if none */
+{
+    for (uint32_t k = 0, c = free_hint; k < n_clus; k++, c++) {
+        if (c >= n_clus + 2) c = 2;
+        if (c < 2) continue;
+        if (!fat_get(c)) { free_hint = c + 1; return c; }
+        if ((k & 1023) == 0) service();
+    }
+    return 0;
+}
+static void fsinfo_adjust(int32_t delta)             /* clusters freed (+) or taken (-) */
+{
+    if (sd_read(fsinfo_lba, SEC2) || rd32(SEC2) != 0x41615252 || rd32(SEC2 + 484) != 0x61417272) return;
+    uint32_t fc = rd32(SEC2 + 488);
+    if (fc != 0xFFFFFFFF) wr32(SEC2 + 488, fc + (uint32_t)delta);
+    wr32(SEC2 + 492, free_hint);
+    sd_write(fsinfo_lba, SEC2);
+    fat_cached = 0xFFFFFFFF;
+}
+static int free_chain(uint32_t c)
+{
+    int32_t n = 0;
+    while (c >= 2 && c < 0x0FFFFFF8) { uint32_t next = fat_get(c); if (fat_set(c, 0)) return -1; n++; c = next; service(); }
+    fsinfo_adjust(n);
+    return 0;
+}
+typedef struct { uint32_t first, clus, size, nclus; int sec, pos, err; } fw_t;   /* sec == spc: the cluster is full, the next is taken when a byte needs it */
+static int fw_open(fw_t *f)
+{
+    f->first = f->clus = alloc_cluster(); f->size = 0; f->sec = 0; f->pos = 0; f->err = 0; f->nclus = 1;
+    if (!f->first || fat_set(f->first, 0x0FFFFFFF)) return -1;
+    return 0;
+}
+static void fw_sector(fw_t *f)
+{
+    if (f->err) return;
+    if (sd_write(clus_lba(f->clus) + f->sec, SEC)) { f->err = 1; return; }
+    f->pos = 0; f->sec++;
+}
+static void fw_next(fw_t *f)
+{
+    uint32_t n = alloc_cluster();
+    if (!n || fat_set(n, 0x0FFFFFFF) || fat_set(f->clus, n)) { f->err = 1; return; }
+    f->clus = n; f->sec = 0; f->nclus++;
+}
+static void fw_bytes(fw_t *f, const void *p, uint32_t n)
+{
+    const uint8_t *b = p;
+    while (n-- && !f->err) {
+        if (f->sec == spc) { fw_next(f); if (f->err) return; }
+        SEC[f->pos++] = *b++; f->size++;
+        if (f->pos == 512) fw_sector(f);
+    }
+}
+static void fw_str(fw_t *f, const char *s) { uint32_t n = 0; while (s[n]) n++; fw_bytes(f, s, n); }
+static int fw_close(fw_t *f, const char *name)
+{
+    if (f->pos && !f->err) {                         /* the last, partial sector */
+        for (int k = f->pos; k < 512; k++) SEC[k] = 0;
+        if (sd_write(clus_lba(f->clus) + f->sec, SEC)) f->err = 1;
+    }
+    if (f->err) return -1;
+    fsinfo_adjust(-(int32_t)f->nclus);
+    dirent_t d;
+    if (dir_find(0, &d)) return -2;
+    if (sd_read(d.lba, SEC)) return -1;
+    uint8_t *e = SEC + d.off; char n11[11]; name83(name, n11);
+    for (int k = 0; k < 32; k++) e[k] = 0;
+    for (int k = 0; k < 11; k++) e[k] = (uint8_t)n11[k];
+    e[11] = 0x20;
+    uint16_t date = (uint16_t)(((2026 - 1980) << 9) | (11 << 5) | 11), time = 12 << 11;
+    wr16(e + 14, time); wr16(e + 16, date); wr16(e + 18, date); wr16(e + 22, time); wr16(e + 24, date);
+    wr16(e + 20, (uint16_t)(f->first >> 16)); wr16(e + 26, (uint16_t)f->first);
+    wr32(e + 28, f->size);
+    return sd_write(d.lba, SEC) ? -1 : 0;
+}
+static int fat_delete(const char *name)
+{
+    dirent_t d;
+    if (dir_find(name, &d)) return -1;
+    uint32_t c = d.clus;
+    if (sd_read(d.lba, SEC)) return -2;
+    SEC[d.off] = 0xE5;
+    if (sd_write(d.lba, SEC)) return -2;
+    return c ? free_chain(c) : 0;
+}
+typedef struct { dirent_t d; uint32_t clus, off; int sec, pos; } fr_t;
+static int fr_open(fr_t *r, const char *name)
+{
+    if (dir_find(name, &r->d)) return -1;
+    r->clus = r->d.clus; r->off = 0; r->sec = 0; r->pos = 512;
+    return 0;
+}
+static int fr_bytes(fr_t *r, void *p, uint32_t n)
+{
+    uint8_t *b = p;
+    while (n--) {
+        if (r->off >= r->d.size) return -1;
+        if (r->pos == 512) {
+            if (r->sec == spc) { r->clus = fat_get(r->clus); r->sec = 0; }
+            if (r->clus < 2 || r->clus >= 0x0FFFFFF8 || sd_read(clus_lba(r->clus) + r->sec, SEC)) return -1;
+            r->sec++; r->pos = 0;
+        }
+        *b++ = SEC[r->pos++]; r->off++;
+    }
+    return 0;
+}
+
+/* ---------- names ---------- */
+/* AVNA0001.S1P etc.: one above the highest number already on the card for that extension. */
+static int next_name(const char *ext, char *out)
+{
+    int best = 0;
+    for (uint32_t c = root_clus; c >= 2 && c < 0x0FFFFFF8; c = fat_get(c))
+        for (int s = 0; s < spc; s++) {
+            if (sd_read(clus_lba(c) + s, SEC)) return -1;
+            for (int o = 0; o < 512; o += 32) {
+                uint8_t *e = SEC + o;
+                if (e[0] == 0) goto done;
+                if (e[0] == 0xE5 || e[11] == 0x0F) continue;
+                if (e[0] != 'A' || e[1] != 'V' || e[2] != 'N' || e[3] != 'A' || e[8] != ext[0] || e[9] != ext[1] || e[10] != ext[2]) continue;
+                int n = 0; for (int k = 4; k < 8; k++) { if (e[k] < '0' || e[k] > '9') { n = -1; break; } n = n * 10 + (e[k] - '0'); }
+                if (n > best) best = n;
+            }
+        }
+done:
+    best++;
+    char *p = out; *p++ = 'A'; *p++ = 'V'; *p++ = 'N'; *p++ = 'A';
+    for (int d = 1000; d; d /= 10) *p++ = '0' + (best / d) % 10;
+    *p++ = '.'; *p++ = ext[0]; *p++ = ext[1]; *p++ = ext[2]; *p = 0;
+    return 0;
+}
+static int prepare(const char *ext, int autoname, char *name)
+{
+    sd_ok = 0;                                       /* the card may have been swapped */
+    if (fat_mount(0)) return -1;
+    if (autoname) return next_name(ext, name);
+    const char *b = "AETHER."; int k = 0; while (b[k]) { name[k] = b[k]; k++; }
+    name[k++] = ext[0]; name[k++] = ext[1]; name[k++] = ext[2]; name[k] = 0;
+    fat_delete(name);                                /* overwrite: free the old one, if any */
+    return 0;
+}
+
+/* ---------- Touchstone ---------- */
+static char *s_put(char *p, const char *s) { while (*s) *p++ = *s++; *p = 0; return p; }
+static char *s_u64(char *p, uint64_t v) { char t[21]; int n = 0; do t[n++] = '0' + v % 10; while (v /= 10); while (n) *p++ = t[--n]; *p = 0; return p; }
+static char *s_e(char *p, float v)                   /* -1.234567e-03 */
+{
+    if (v != v) return s_put(p, "nan");
+    if (v < 0) { *p++ = '-'; v = -v; }
+    int e = 0;
+    if (v != 0) {
+        while (v >= 1e4f) { v *= 1e-4f; e += 4; } while (v >= 10) { v *= 0.1f; e++; }
+        while (v < 1e-4f) { v *= 1e4f; e -= 4; } while (v < 1) { v *= 10; e--; }
+    }
+    uint32_t m = (uint32_t)(v * 1000000 + 0.5f);
+    if (m >= 10000000) { m /= 10; e++; }
+    *p++ = '0' + m / 1000000; *p++ = '.';
+    for (uint32_t d = 100000; d; d /= 10) *p++ = '0' + (m / d) % 10;
+    *p++ = 'e'; *p++ = e < 0 ? '-' : '+'; if (e < 0) e = -e;
+    *p++ = '0' + e / 10; *p++ = '0' + e % 10; *p = 0;
+    return p;
+}
+int sd_save_touchstone(int two_port, int autoname, char *name)
+{
+    if (prepare(two_port ? "S2P" : "S1P", autoname, name)) return -1;
+    fw_t f; if (fw_open(&f)) return -2;
+    int cal = cal_on && cal_valid();
+    char b[160], *p;
+    p = s_put(b, "! AetherVNA " GIT_VERSION " on a LiteVNA 64, ");
+    p = s_put(p, cal ? "calibrated (one-path SOLT)\r\n" : "UNCALIBRATED (raw ratios)\r\n");
+    fw_str(&f, b);
+    if (two_port) fw_str(&f, "! One-path instrument: S12 and S22 are not measured and are written as 0.\r\n");
+    fw_str(&f, "# Hz S RI R 50\r\n");
+    for (int i = 0; i < sweep_cfg.points && !f.err; i++) {
+        cpx a = pts[i].s11, t = pts[i].s21;
+        if (cal) cal_apply(i, &a, &t);
+        p = s_u64(b, pts[i].f_tuned ? pts[i].f_tuned : sweep_freq(i));
+        *p++ = ' '; p = s_e(p, a.re); *p++ = ' '; p = s_e(p, a.im);
+        if (two_port) { *p++ = ' '; p = s_e(p, t.re); *p++ = ' '; p = s_e(p, t.im); p = s_put(p, " 0 0 0 0"); }
+        p = s_put(p, "\r\n");
+        fw_str(&f, b);
+        if ((i & 15) == 0) service();
+    }
+    return fw_close(&f, name);
+}
+
+/* ---------- calibration files (binary, exact) ---------- */
+static const char cal_magic[8] = { 'A', 'V', 'N', 'A', 'C', 'A', 'L', '1' };
+int sd_save_cal(int autoname, char *name)
+{
+    uint64_t cs, ce; int cn;
+    if (cal_range(&cs, &ce, &cn) < 0) return -3;
+    if (prepare("CAL", autoname, name)) return -1;
+    fw_t f; if (fw_open(&f)) return -2;
+    sweep_cfg_t s = sweep_cfg; s.start = cs; s.stop = ce; s.points = (uint16_t)cn;
+    uint8_t sz = sizeof s, have = cal_have, enh = cal_enhanced, on = cal_on;
+    fw_bytes(&f, cal_magic, 8); fw_bytes(&f, &sz, 1); fw_bytes(&f, &s, sizeof s);
+    fw_bytes(&f, &have, 1); fw_bytes(&f, &enh, 1); fw_bytes(&f, &on, 1);
+    for (int k = 0; k <= CAL_ISOLN; k++) if (have & (1u << k))
+        for (int i = 0; i < cn && !f.err; i++) {
+            cpx a, b; cal_std_get(k, i, &a, &b);
+            fw_bytes(&f, &a, sizeof a); fw_bytes(&f, &b, sizeof b);
+            if ((i & 31) == 0) service();
+        }
+    return fw_close(&f, name);
+}
+int sd_load_cal(const char *name)
+{
+    sd_ok = 0;
+    if (fat_mount(0)) return -1;
+    fr_t r; if (fr_open(&r, name)) return -2;
+    char m[8]; uint8_t sz; sweep_cfg_t s;
+    if (fr_bytes(&r, m, 8) || fr_bytes(&r, &sz, 1)) return -3;
+    for (int k = 0; k < 8; k++) if (m[k] != cal_magic[k]) return -3;
+    if (sz != sizeof s || fr_bytes(&r, &s, sizeof s)) return -4;       /* another firmware layout */
+    if (s.points < 1 || s.points > POINTS_MAX || s.start < FREQ_MIN || s.stop > FREQ_MAX) return -3;
+    uint8_t have, enh, on;
+    if (fr_bytes(&r, &have, 1) || fr_bytes(&r, &enh, 1) || fr_bytes(&r, &on, 1)) return -3;
+    sweep_cfg = s; vna_restart();
+    cal_reset(); cal_enhanced = enh;
+    for (int k = 0; k <= CAL_ISOLN; k++) if (have & (1u << k))
+        for (int i = 0; i < s.points; i++) {
+            cpx a, b; if (fr_bytes(&r, &a, sizeof a) || fr_bytes(&r, &b, sizeof b)) return -3;
+            cal_std_put(k, i, a, b);
+        }
+    if ((have & 15) == 15 && cal_solve() == 0) cal_on = on;
+    return 0;
+}
+/* Root-directory names with this extension, newest numbers first is not guaranteed: directory order. */
+int sd_list(const char *ext, char names[][13], int max)
+{
+    sd_ok = 0;
+    if (fat_mount(0)) return -1;
+    int n = 0;
+    for (uint32_t c = root_clus; c >= 2 && c < 0x0FFFFFF8; c = fat_get(c))
+        for (int s = 0; s < spc; s++) {
+            if (sd_read(clus_lba(c) + s, SEC)) return -1;
+            for (int o = 0; o < 512 && n < max; o += 32) {
+                uint8_t *e = SEC + o;
+                if (e[0] == 0) return n;
+                if (e[0] == 0xE5 || e[11] == 0x0F || (e[11] & 0x18)) continue;
+                if (e[8] != ext[0] || e[9] != ext[1] || e[10] != ext[2]) continue;
+                char *p = names[n++];
+                for (int k = 0; k < 8 && e[k] != ' '; k++) *p++ = e[k];
+                *p++ = '.'; *p++ = e[8]; *p++ = e[9]; *p++ = e[10]; *p = 0;
+            }
+        }
+    return n;
+}
+
 /* ---------- console ---------- */
 static int streq(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return *a == *b; }
 /* Rewrites one sector of a cluster with PATTERN.BIN's formula (repair aid). */
@@ -443,10 +697,32 @@ void sd_command(int argc, char **argv)
     if (streq(a, "ls")) { fat_ls(); return; }
     if (streq(a, "verify")) { sd_verify(); return; }
     if (streq(a, "write")) { fat_write_small("WRITE.TXT", "AETHERVNA WRITE OK"); return; }
+    if (streq(a, "save") && argc >= 3) {             /* sd save s1p|s2p|cal [fixed] */
+        char name[13]; int r, autoname = !(argc > 3 && streq(argv[3], "fixed"));
+        if (streq(argv[2], "s1p") || streq(argv[2], "s2p")) r = sd_save_touchstone(argv[2][1] == '2', autoname, name);
+        else if (streq(argv[2], "cal")) r = sd_save_cal(autoname, name);
+        else { con_puts("usage: sd save s1p|s2p|cal [fixed]\r\n"); return; }
+        if (r == -3) { con_puts("error: no calibration\r\n"); return; }
+        if (r) { con_puts("error: "); con_dec(r); con_puts("\r\n"); return; }
+        con_puts("saved "); con_puts(name); con_puts("\r\n"); return;
+    }
+    if (streq(a, "load") && argc == 3) {
+        int r = sd_load_cal(argv[2]);
+        con_puts(r == 0 ? "ok: calibration and its sweep loaded\r\n" : r == -2 ? "error: not found\r\n" : r == -4 ? "error: saved by another firmware layout\r\n" : "error: not a calibration file\r\n");
+        return;
+    }
+    if (streq(a, "rm") && argc == 3) { if (!mounted && fat_mount(0)) return; con_puts(fat_delete(argv[2]) ? "error\r\n" : "ok\r\n"); return; }
+    if (streq(a, "cat") && argc == 3) {
+        if (!mounted && fat_mount(0)) return;
+        fr_t r; if (fr_open(&r, argv[2])) { con_puts("error: not found\r\n"); return; }
+        uint8_t ch; uint32_t n = 0;
+        while (n < 16384 && fr_bytes(&r, &ch, 1) == 0) { if (ch == '\n' || ch == '\r' || (ch >= 32 && ch < 127)) con_putc((char)ch); else con_putc('.'); n++; }
+        con_puts("\r\n"); return;
+    }
     if (!*a || streq(a, "status")) {
         con_puts("cs "); if (sd_cs == 0xFF) con_puts("unknown"); else for (unsigned k = 0; k < sizeof cand; k++) if (cand[k] == sd_cs) con_puts(cand_n[k]);
         con_puts(sd_ok ? (sd_hc ? " card SDHC" : " card SDSC") : " card not initialised"); con_puts(mounted ? " mounted\r\n" : "\r\n");
         return;
     }
-    con_puts("usage: sd [status|probe|cs <pin>|init|mount|ls|verify|write]\r\n");
+    con_puts("usage: sd [status|probe|cs <pin>|init|mount|ls|verify|write|save s1p|s2p|cal [fixed]|load <file>|cat <file>|rm <file>]\r\n");
 }

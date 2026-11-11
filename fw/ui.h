@@ -23,3 +23,8 @@ int  config_save(void);
 int  store_erase_all(void);
 void store_boot(void);
 void store_command(int argc, char **argv);
+/* sd.c */
+int  sd_save_touchstone(int two_port, int autoname, char *name);   /* name: 13 bytes out */
+int  sd_save_cal(int autoname, char *name);
+int  sd_load_cal(const char *name);
+int  sd_list(const char *ext, char names[][13], int max);

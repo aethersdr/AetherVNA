@@ -170,6 +170,7 @@ int main(void)
     gpio_init();
     usb_init();
     vna_init();
+    store_boot();                   /* config and slot 0, if saved */
     last_cyc = DWT_CYCCNT;
     int was_configured = 0;
     for (;;) {

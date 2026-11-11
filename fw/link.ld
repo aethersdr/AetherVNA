@@ -21,4 +21,6 @@ SECTIONS
   .noinit (NOLOAD) : { *(.noinit*) . = ALIGN(4); _end_static = .; } > ram
   _estack = ORIGIN(ram) + LENGTH(ram);
   ASSERT(_estack - _end_static >= 8K, "less than 8 KB of RAM left for the stack")
+  /* Saved settings and calibrations live at 0x08050000-0x0807FFFF (store.c). */
+  ASSERT(LOADADDR(.data) + SIZEOF(.data) <= 0x08050000, "the image would overlap the saved settings")
 }

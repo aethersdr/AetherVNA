@@ -59,7 +59,8 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 11: first full calibration and checks on the HF plan; USB replies ending on a full packet end with a zero-length packet (a scan could hang) | Done |
 | 12: stock-style UI: four traces (log mag, phase, SWR, Smith, linear, R, X, \|Z\|), Smith chart over the grid, four markers with search, menus (display, marker, sweep with keypad and HF band presets, on-device calibration), touch and jog input, all mirrored on the console; `lcd capture` and `host/screenshot.py` for checking the screen over USB | Done: driven over the console, touch checked by hand |
 | 13: microSD slot found (SPI1, chip select PB9); SPI-mode driver and FAT32 read/write checked on a test card | Done |
-| Later: saved settings, calibration and touch map in flash, the remaining stock menus (NOTES.md, stage 12), open/short level check above 1 GHz | Planned |
+| 14: save/recall slots 0-6 (settings, display, calibration) and config (touch map) in flash; slot 0 at power-on | Done |
+| Later: the remaining stock menus (NOTES.md, stage 12), open/short level check above 1 GHz | Planned |
 
 ## Build and flash
 
@@ -92,6 +93,7 @@ commands follow NanoVNA-D so existing tools can drive it:
 | `ui [state\|tap <x> <y>\|jog l\|r\|L\|R\|rr\|redraw]` | menu state; taps and jog clicks/holds as if by hand |
 | `touch [cal\|map [ax bx ay by swap]]` | raw reading, on-screen touch calibration, the mapping |
 | `lcd [init\|test\|ui\|off\|capture\|madctl <hex>\|inv 0\|1\|marker <i>\|status]`, `backlight` | display; `capture` streams the redrawn screen (`host/screenshot.py` makes a PNG) |
+| `save <0-6>`, `recall <0-6>`, `config [save\|erase]` | settings and calibrations in flash (slot 0 loads at power-on); `config erase` before restoring stock |
 | `sd status\|probe\|cs\|init\|mount\|ls\|verify\|write` | microSD (SPI1, chip select PB9), FAT32; `fat`, `fatrange`, `patsec`, `unlink`, `fsinfo` for repair |
 | `raw <freq>`, `tune`, `ms`, `mx`, `pin`, `clk` | diagnostics |
 | `bootloader`, `reset` | refused while the jog is pressed |

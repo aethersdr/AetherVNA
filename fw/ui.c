@@ -86,23 +86,23 @@ enum {
     F_Q, F_G, F_B, F_Y, F_ZPHASE, F_SERC, F_SERL, F_PARR, F_PARX, F_PARC, F_PARL,
     F_S21SR, F_S21SX, F_S21HR, F_S21HX, F_S21Q, F_N
 };
-typedef struct { const char *name, *cmd; uint8_t unit, kind, refpos; float scale, ref; } fmt_t;
+typedef struct { const char *name, *cmd; uint8_t unit, kind, refpos; float scale, ref; const char *menu; } fmt_t;   /* menu: shorter label, if needed */
 static const fmt_t fmts[F_N] = {
     [F_LOGMAG] = { "LOGMAG", "logmag", U_DB, K_RECT, 7, 10, 0 },
     [F_PHASE]  = { "PHASE", "phase", U_DEG, K_RECT, 4, 90, 0 },
     [F_DELAY]  = { "DELAY", "delay", U_SEC, K_RECT, 4, 1e-8f, 0 },
     [F_SMITH]  = { "SMITH", "smith", U_NONE, K_SMITH, 0, 1, 0 },
     [F_SWR]    = { "SWR", "swr", U_NONE, K_RECT, 0, 1, 1 },
-    [F_R]      = { "RESISTANCE", "r", U_OHM, K_RECT, 0, 25, 0 },
-    [F_X]      = { "REACTANCE", "x", U_OHM, K_RECT, 4, 50, 0 },
+    [F_R]      = { "RESISTANCE", "r", U_OHM, K_RECT, 0, 25, 0, "RESIST R" },
+    [F_X]      = { "REACTANCE", "x", U_OHM, K_RECT, 4, 50, 0, "REACT X" },
     [F_Z]      = { "|Z|", "z", U_OHM, K_RECT, 0, 25, 0 },
     [F_POLAR]  = { "POLAR", "polar", U_NONE, K_POLAR, 0, 1, 0 },
     [F_LINEAR] = { "LINEAR", "linear", U_NONE, K_RECT, 0, 0.125f, 0 },
     [F_REAL]   = { "REAL", "real", U_NONE, K_RECT, 4, 0.25f, 0 },
     [F_IMAG]   = { "IMAG", "imag", U_NONE, K_RECT, 4, 0.25f, 0 },
     [F_Q]      = { "Q FACTOR", "q", U_NONE, K_RECT, 0, 10, 0 },
-    [F_G]      = { "CONDUCTANCE", "g", U_S, K_RECT, 0, 0.005f, 0 },
-    [F_B]      = { "SUSCEPTANCE", "b", U_S, K_RECT, 4, 0.01f, 0 },
+    [F_G]      = { "CONDUCTANCE", "g", U_S, K_RECT, 0, 0.005f, 0, "CONDUCT G" },
+    [F_B]      = { "SUSCEPTANCE", "b", U_S, K_RECT, 4, 0.01f, 0, "SUSCEPT B" },
     [F_Y]      = { "|Y|", "y", U_S, K_RECT, 0, 0.005f, 0 },
     [F_ZPHASE] = { "Z PHASE", "zphase", U_DEG, K_RECT, 4, 45, 0 },
     [F_SERC]   = { "SERIES C", "serc", U_F, K_RECT, 0, 1e-10f, 0 },
@@ -121,6 +121,7 @@ static const char *const unit_txt[] = { "dB", DEG, "", OHM, "S", "F", "H", "s" }
 /* Smith-chart marker readouts: S11 and S21 sets, as in the menu map. */
 static const char *const smode_s11[] = { "LIN", "LOG", "Re+Im", "R+jX", "R+L/C", "G+jB", "G+L/C", "Rp+jXp", "Rp+L/C" };
 static const char *const smode_s21[] = { "LIN", "LOG", "Re+Im", "R+jX SHUNT", "R+jX SERIES" };
+static const char *const smode_s21_menu[] = { "LIN", "LOG", "Re+Im", "SHUNT Z", "SERIES Z" };
 static const char *const smode_cmd[] = { "lin", "log", "reim", "rjx", "rlc", "gjb", "glc", "rpjxp", "rplc" };
 
 typedef struct { uint8_t on, ch, fmt, refpos, smode; float scale, ref; } trace_t;
@@ -354,7 +355,7 @@ static void line_text(int x, int y, const char *s, uint16_t fg, int xmax)
 /* ---------- menus ---------- */
 enum {
     MN_HOME, MN_DISPLAY, MN_TRACE, MN_F11, MN_F11B, MN_F11C, MN_S11SM, MN_F21, MN_F21B, MN_S21SM, MN_SCALE, MN_AVG,
-    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_N
+    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_N
 };
 enum {
     A_NONE, A_BACK,
@@ -372,11 +373,12 @@ enum {
     A_COPEN, A_CSHORT, A_CLOAD, A_CISOLN, A_CTHRU, A_CDONE, A_CDONERAM, A_CSTD,
     A_CSAVE, A_CRANGE, A_CRESET, A_CRESETALL, A_CAPPLY, A_CENH,
     A_TOUCHCAL, A_TOUCHTEST, A_SAVECFG, A_VERSION, A_BRIGHT, A_FLIP, A_CLEARCFG, A_BOOTLOAD,
+    A_SAVE0, A_SAVEEND = A_SAVE0 + 7, A_RCL0 = A_SAVEEND, A_RCLEND = A_RCL0 + 7,
     A_N
 };
 #define SUB(m) (A_SUB + (m))
 static const uint8_t menus[MN_N][MROWS] = {
-    [MN_HOME]    = { SUB(MN_DISPLAY), SUB(MN_MARKER), SUB(MN_STIM), SUB(MN_CALMENU), A_RECALL, A_MEASURE, A_SDCARD, SUB(MN_CONFIG), A_PAUSE },
+    [MN_HOME]    = { SUB(MN_DISPLAY), SUB(MN_MARKER), SUB(MN_STIM), SUB(MN_CALMENU), SUB(MN_RECALL), A_MEASURE, A_SDCARD, SUB(MN_CONFIG), A_PAUSE },
     [MN_DISPLAY] = { SUB(MN_TRACE), SUB(MN_F11), SUB(MN_F21), A_CHANNEL, SUB(MN_SCALE), A_TRANSFORM, SUB(MN_AVG), A_PORTZ, A_BACK },
     [MN_TRACE]   = { A_TRACE0, A_TRACE0 + 1, A_TRACE0 + 2, A_TRACE0 + 3, A_STORE, A_BACK },
     [MN_F11]     = { A_F0 + F_LOGMAG, A_F0 + F_PHASE, A_F0 + F_DELAY, SUB(MN_S11SM), A_F0 + F_SWR, A_F0 + F_R, A_F0 + F_X, A_F0 + F_Z, SUB(MN_F11B), A_BACK },
@@ -393,22 +395,24 @@ static const uint8_t menus[MN_N][MROWS] = {
     [MN_OPS]     = { A_OSTART, A_OSTOP, A_OCENTER, A_OSPAN, A_OEDELAY, A_BACK },
     [MN_STIM]    = { A_START, A_STOP, A_CENTER, A_SPAN, A_CW, A_JOGSTEP, SUB(MN_CFGSW), A_BANDS, A_BACK },
     [MN_CFGSW]   = { A_POINTS, A_TXPOWER, A_BACK },
-    [MN_CALMENU] = { SUB(MN_CAL), A_CSAVE, A_CRANGE, A_CRESET, A_CRESETALL, A_CAPPLY, A_CENH, A_BACK },
+    [MN_CALMENU] = { SUB(MN_CAL), SUB(MN_SAVE), A_CRANGE, A_CRESET, A_CRESETALL, A_CAPPLY, A_CENH, A_BACK },
     [MN_CAL]     = { A_COPEN, A_CSHORT, A_CLOAD, A_CISOLN, A_CTHRU, A_CDONE, A_CDONERAM, A_CSTD, A_BACK },
     [MN_CONFIG]  = { A_TOUCHCAL, A_TOUCHTEST, SUB(MN_EXPERT), A_SAVECFG, A_VERSION, A_BRIGHT, A_BACK },
     [MN_EXPERT]  = { A_FLIP, A_CLEARCFG, A_BOOTLOAD, A_BACK },
+    [MN_SAVE]    = { A_SAVE0, A_SAVE0 + 1, A_SAVE0 + 2, A_SAVE0 + 3, A_SAVE0 + 4, A_SAVE0 + 5, A_SAVE0 + 6, A_BACK },
+    [MN_RECALL]  = { A_RCL0, A_RCL0 + 1, A_RCL0 + 2, A_RCL0 + 3, A_RCL0 + 4, A_RCL0 + 5, A_RCL0 + 6, A_BACK },
 };
 static const uint8_t menu_parent[MN_N] = {
     [MN_HOME] = MN_HOME, [MN_DISPLAY] = MN_HOME, [MN_TRACE] = MN_DISPLAY, [MN_F11] = MN_DISPLAY, [MN_F11B] = MN_F11,
     [MN_F11C] = MN_F11B, [MN_S11SM] = MN_F11, [MN_F21] = MN_DISPLAY, [MN_F21B] = MN_F21, [MN_S21SM] = MN_F21,
     [MN_SCALE] = MN_DISPLAY, [MN_AVG] = MN_DISPLAY, [MN_MARKER] = MN_HOME, [MN_SELMK] = MN_MARKER, [MN_OPS] = MN_MARKER,
     [MN_STIM] = MN_HOME, [MN_CFGSW] = MN_STIM, [MN_CALMENU] = MN_HOME, [MN_CAL] = MN_CALMENU, [MN_CONFIG] = MN_HOME,
-    [MN_EXPERT] = MN_CONFIG,
+    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME,
 };
 static const char *const menu_name[MN_N] = {
     "home", "display", "trace", "format_s11", "format_s11_more", "format_s11_more2", "s11_smith", "format_s21",
     "format_s21_more", "s21_smith", "scale", "avg", "marker", "select_marker", "operations", "stimulus", "cfg_sweep",
-    "calibrate", "calibrate_standards", "config", "expert" };
+    "calibrate", "calibrate_standards", "config", "expert", "save", "recall" };
 static const uint8_t avg_vals[8] = { AVG_AUTO, 1, 2, 4, 8, 16, 32, 64 };
 static uint8_t menu_open, menu_id, menu_sel;
 static int menu_len(int id) { int n = 0; while (n < MROWS && menus[id][n]) n++; return n; }
@@ -421,7 +425,7 @@ static int item_label(int a, char *b)
     static const char *const sub_n[MN_N] = {
         "HOME", "DISPLAY", "TRACE", "FORMAT S11", ">MORE", ">MORE", "SMITH", "FORMAT S21", ">MORE", "SMITH",
         "SCALE", "AVG", "MARKER", "SELECT MK", "OPERATIONS", "STIMULUS", "CFG SWEEP", "CALIBRATE", "CALIBRATE",
-        "CONFIG", "EXPERT" };
+        "CONFIG", "EXPERT", "SAVE", "RECALL" };
     char *p = b; *p = 0;
     if (a == A_BACK) { put_s(p, "< BACK"); return CK_NONE; }
     if (a >= A_SUB && a < A_SUB_END) { put_s(p, sub_n[a - A_SUB]); return CK_NONE; }
@@ -430,13 +434,13 @@ static int item_label(int a, char *b)
         return tr[t].on ? CK_ON : CK_OFF;
     }
     if (a >= A_F0 && a < A_FEND) {
-        int f = a - A_F0; put_s(p, fmts[f].name);
+        int f = a - A_F0; put_s(p, fmts[f].menu ? fmts[f].menu : fmts[f].name);
         int ch = menu_id == MN_F21 || menu_id == MN_F21B;
         return tr[tr_act].fmt == f && tr[tr_act].ch == ch ? CK_ON : CK_NONE;
     }
     if (a >= A_SM0 && a < A_SMEND) {
         int m = a - A_SM0; int s21 = menu_id == MN_S21SM;
-        put_s(p, s21 ? smode_s21[m] : smode_s11[m]);
+        put_s(p, s21 ? smode_s21_menu[m] : smode_s11[m]);
         return tr[tr_act].fmt == F_SMITH && tr[tr_act].ch == s21 && tr[tr_act].smode == m ? CK_ON : CK_NONE;
     }
     if (a >= A_AVG0 && a < A_AVGEND) {
@@ -444,23 +448,28 @@ static int item_label(int a, char *b)
         if (!k) put_s(p, "AUTO"); else if (k == 1) put_s(p, "NONE"); else { p = put_u(p, avg_vals[k], 1); put_s(p, "x"); }
         return sweep_cfg.avg == avg_vals[k] ? CK_ON : CK_NONE;
     }
+    if (a >= A_SAVE0 && a < A_RCLEND) {
+        int n = a >= A_RCL0 ? a - A_RCL0 : a - A_SAVE0;
+        p = put_s(p, a >= A_RCL0 ? "RECALL " : "SAVE "); put_u(p, n, 1);
+        if (a >= A_RCL0 && !store_valid(n)) return CK_DIM;
+        return store_valid(n) ? CK_ON : CK_OFF;
+    }
     if (a >= A_MK0 && a < A_MKEND) {
         int m = a - A_MK0; p = put_s(p, "MARKER "); p = put_u(p, m + 1, 1); if (m == mk_act) put_s(p, " <");
         return mk[m].on ? CK_ON : CK_OFF;
     }
     switch (a) {
-    case A_PAUSE: put_s(p, "PAUSE SWEEP"); return sweep_running ? CK_OFF : CK_ON;
-    case A_RECALL: put_s(p, "RECALL"); return CK_DIM;
+    case A_PAUSE: put_s(p, "PAUSE"); return sweep_running ? CK_OFF : CK_ON;
     case A_MEASURE: put_s(p, "MEASURE"); return CK_DIM;
     case A_SDCARD: put_s(p, "SD CARD"); return CK_DIM;
     case A_STORE: put_s(p, "STORE TRACE"); return CK_DIM;
-    case A_CHANNEL: put_s(p, tr[tr_act].ch ? "CHANNEL S21" : "CHANNEL S11"); return CK_NONE;
+    case A_CHANNEL: put_s(p, tr[tr_act].ch ? "CHAN S21" : "CHAN S11"); return CK_NONE;
     case A_SCALEDIV: put_s(p, "SCALE/DIV"); return CK_NONE;
     case A_REFVAL: put_s(p, "REF VALUE"); return CK_NONE;
-    case A_REFPOS: put_s(p, "REF POSITION"); return CK_NONE;
+    case A_REFPOS: put_s(p, "REF POS"); return CK_NONE;
     case A_EDELAY: put_s(p, "E-DELAY"); return CK_NONE;
     case A_S21OFF: put_s(p, "S21 OFFSET"); return CK_NONE;
-    case A_GRIDVAL: put_s(p, "GRID VALUES"); return grid_values ? CK_ON : CK_OFF;
+    case A_GRIDVAL: put_s(p, "GRID VALS"); return grid_values ? CK_ON : CK_OFF;
     case A_DOTGRID: put_s(p, "DOT GRID"); return dot_grid ? CK_ON : CK_OFF;
     case A_AUTO: put_s(p, "AUTOSCALE"); return CK_NONE;
     case A_TRANSFORM: put_s(p, "TRANSFORM"); return CK_DIM;
@@ -481,7 +490,7 @@ static int item_label(int a, char *b)
     case A_CENTER: put_s(p, "CENTER"); return CK_NONE;
     case A_SPAN: put_s(p, "SPAN"); return CK_NONE;
     case A_CW: put_s(p, "CW FREQ"); return CK_NONE;
-    case A_JOGSTEP: p = put_s(p, "JOG STEP"); if (!jog_step) put_s(p, " auto"); return CK_NONE;
+    case A_JOGSTEP: put_s(p, "JOG STEP"); return CK_NONE;
     case A_POINTS: p = put_s(p, "POINTS "); put_u(p, sweep_cfg.points, 1); return CK_NONE;
     case A_TXPOWER: put_s(p, "TX POWER"); return CK_DIM;
     case A_BANDS: put_s(p, "HF BANDS"); return CK_NONE;
@@ -492,20 +501,20 @@ static int item_label(int a, char *b)
     case A_CISOLN: put_s(p, "ISOLN"); return cal_have & CAL_ISO_BIT ? CK_ON : CK_OFF;
     case A_CDONE: put_s(p, "DONE"); return CK_NONE;
     case A_CDONERAM: put_s(p, "DONE IN RAM"); return CK_NONE;
-    case A_CSTD: put_s(p, "CAL STANDARD"); return CK_DIM;
+    case A_CSTD: put_s(p, "CAL KIT"); return CK_DIM;
     case A_CSAVE: put_s(p, "SAVE"); return CK_DIM;
     case A_CRANGE: put_s(p, "RESET RANGE"); return CK_NONE;
     case A_CRESET: put_s(p, confirming(a) ? "SURE?" : "RESET"); return CK_NONE;
     case A_CRESETALL: put_s(p, confirming(a) ? "SURE?" : "RESET ALL"); return CK_NONE;
     case A_CAPPLY: put_s(p, "APPLY"); return cal_on && cal_valid() ? CK_ON : CK_OFF;
-    case A_CENH: put_s(p, "ENHANCED RESP"); return cal_enhanced ? CK_ON : CK_OFF;
+    case A_CENH: put_s(p, "ENH RESP"); return cal_enhanced ? CK_ON : CK_OFF;
     case A_TOUCHCAL: put_s(p, "TOUCH CAL"); return CK_NONE;
     case A_TOUCHTEST: put_s(p, "TOUCH TEST"); return CK_NONE;
-    case A_SAVECFG: put_s(p, "SAVE CONFIG"); return CK_DIM;
+    case A_SAVECFG: put_s(p, "SAVE CONFIG"); return CK_NONE;
     case A_VERSION: put_s(p, "VERSION"); return CK_NONE;
     case A_BRIGHT: put_s(p, "BRIGHTNESS"); return CK_DIM;
-    case A_FLIP: put_s(p, "FLIP DISPLAY"); return flipped ? CK_ON : CK_OFF;
-    case A_CLEARCFG: put_s(p, "CLEAR CONFIG"); return CK_DIM;
+    case A_FLIP: put_s(p, "FLIP"); return flipped ? CK_ON : CK_OFF;
+    case A_CLEARCFG: put_s(p, confirming(a) ? "SURE?" : "CLEAR CFG"); return CK_NONE;
     case A_BOOTLOAD: put_s(p, confirming(a) ? "SURE?" : ">BOOTLOAD"); return CK_NONE;
     }
     return CK_NONE;
@@ -530,8 +539,7 @@ static void draw_menu(void)
             if (ck == CK_ON) lcd_fill(x + 2, by + 2, 5, 5, fg);
             x += 13;
         }
-        const font_t *f = ftext_w(b, &font_m) <= W - x - 3 ? &font_m : &font_s;
-        ftext(x, y + (MROW - f->h) / 2, b, f, fg, bg, W - 2);
+        ftext(x, y + (MROW - font_s.h) / 2, b, &font_s, fg, bg, W - 2);   /* one size for every item (maintainer's choice) */
     }
 }
 static void menu_show(int id) { if (!menu_open) dirty |= D_LEGEND; menu_open = 1; menu_id = id; menu_sel = 0; dirty |= D_MENU; }
@@ -780,6 +788,15 @@ static void act(int a)
         set_format(F_SMITH, menu_id == MN_S21SM); tr[tr_act].smode = a - A_SM0; dirty |= D_MENU; return;
     }
     if (a >= A_AVG0 && a < A_AVGEND) { sweep_cfg.avg = avg_vals[a - A_AVG0]; dirty |= D_MENU; return; }
+    if (a >= A_SAVE0 && a < A_SAVEEND) {
+        int n = a - A_SAVE0; say("saving...", 10000); draw_status();
+        say(store_save(n) ? "error: flash write failed" : "saved", 3000); dirty |= D_MENU; return;
+    }
+    if (a >= A_RCL0 && a < A_RCLEND) {
+        int n = a - A_RCL0;
+        if (store_recall(n)) { say("that slot is empty", 3000); return; }
+        say("recalled", 3000); menu_close(); return;
+    }
     if (a >= A_MK0 && a < A_MKEND) {
         int m = a - A_MK0;
         if (m == mk_act) mk[m].on = !mk[m].on; else { mk[m].on = 1; mk_act = m; }
@@ -789,8 +806,7 @@ static void act(int a)
     switch (a) {
     case A_BACK: if (menu_id == MN_HOME) menu_close(); else menu_show(menu_parent[menu_id]); return;
     case A_PAUSE: sweep_running = !sweep_running; if (!sweep_running) synth_all_off(); dirty |= D_MENU | D_STATUS; return;
-    case A_RECALL: case A_SDCARD: case A_STORE: case A_TRANSFORM: case A_CSTD: case A_CSAVE: case A_SAVECFG:
-    case A_CLEARCFG: case A_BRIGHT: case A_TXPOWER: case A_MEASURE:
+    case A_SDCARD: case A_STORE: case A_TRANSFORM: case A_CSTD: case A_BRIGHT: case A_TXPOWER: case A_MEASURE:
         say("not built yet: see the plan in NOTES.md (stage 12)", 3000); return;
     case A_CHANNEL: tr[tr_act].ch ^= 1; if (tr[tr_act].fmt >= F_S21SR && !tr[tr_act].ch) set_format(F_LOGMAG, 0); dirty |= D_FULL; return;
     case A_SCALEDIV: case A_REFVAL: case A_REFPOS: case A_EDELAY: case A_S21OFF: case A_PORTZ:
@@ -825,16 +841,18 @@ static void act(int a)
     case A_CISOLN: cal_step(CAL_ISOLN); dirty |= D_MENU; return;
     case A_CDONE: case A_CDONERAM: {
         int r = cal_solve();
-        say(r == -1 ? "need open, short, load and thru" : r ? "singular standards" : a == A_CDONE ? "calibration on (saving to flash: next stage)" : "calibration on", 4000);
-        if (!r) menu_show(MN_CALMENU);
+        say(r == -1 ? "need open, short, load and thru" : r ? "singular standards" : a == A_CDONE ? "calibration on: choose a slot to save it" : "calibration on", 4000);
+        if (!r) menu_show(a == A_CDONE ? MN_SAVE : MN_CALMENU);
         dirty |= D_MENU | D_GRAPH | D_LEGEND | D_READOUT; return; }
     case A_CRANGE: {
         uint64_t cs, ce; int cn;
         if (cal_range(&cs, &ce, &cn) < 0) { say("no calibration", 3000); return; }
         set_sweep_ui(cs, ce, cn); return; }
-    case A_CRESET: case A_CRESETALL: case A_BOOTLOAD:
+    case A_SAVECFG: say(config_save() ? "error: flash write failed" : "config saved", 3000); return;
+    case A_CRESET: case A_CRESETALL: case A_BOOTLOAD: case A_CLEARCFG:
         if (!confirming(a)) { confirm_a = a; confirm_t = ms_ticks; dirty |= D_MENU; return; }
         confirm_a = 0;
+        if (a == A_CLEARCFG) { say(store_erase_all() ? "error: erase failed" : "saved settings and calibrations erased", 4000); dirty |= D_MENU; return; }
         if (a == A_BOOTLOAD) { boot_pending = ms_ticks ? ms_ticks : 1; say("release the jog: entering the bootloader", 10000); return; }
         cal_reset();
         if (a == A_CRESETALL) reset_display();
@@ -1285,6 +1303,48 @@ static void jog_poll(void)
     } else if (dir) jog_event(dir, 2);
 }
 
+/* ---------- state for store.c ---------- */
+typedef struct {
+    trace_t tr[4]; marker_t mk[NMK];
+    uint8_t tr_act, mk_act, mk_delta, mk_tracking, search_min, grid_values, dot_grid, avg;
+    uint32_t jog_step; float edelay, s21_offset, port_z;
+} ui_state_t;
+typedef struct { float ax, bx, ay, by; uint8_t swap, flipped, touch_ok, pad; } ui_cfg_t;
+int ui_state_size(void) { return sizeof(ui_state_t); }
+static void bcopy_(void *d, const void *s, int n) { uint8_t *a = d; const uint8_t *b = s; while (n--) *a++ = *b++; }
+void ui_state_get(uint8_t *b)
+{
+    ui_state_t u;
+    bcopy_(u.tr, tr, sizeof tr); bcopy_(u.mk, mk, sizeof mk);
+    u.tr_act = tr_act; u.mk_act = mk_act; u.mk_delta = mk_delta; u.mk_tracking = mk_tracking; u.search_min = search_min;
+    u.grid_values = grid_values; u.dot_grid = dot_grid; u.avg = sweep_cfg.avg;
+    u.jog_step = jog_step; u.edelay = edelay; u.s21_offset = s21_offset; u.port_z = port_z;
+    bcopy_(b, &u, sizeof u);
+}
+void ui_state_put(const uint8_t *b)
+{
+    ui_state_t u; bcopy_(&u, b, sizeof u);
+    for (int t = 0; t < 4; t++) if (u.tr[t].fmt >= F_N || !(u.tr[t].scale > 0)) return;   /* not ours: keep the defaults */
+    bcopy_(tr, u.tr, sizeof tr); bcopy_(mk, u.mk, sizeof mk);
+    tr_act = u.tr_act & 3; mk_act = u.mk_act < NMK ? u.mk_act : 0; mk_delta = u.mk_delta; mk_tracking = u.mk_tracking;
+    search_min = u.search_min; grid_values = u.grid_values; dot_grid = u.dot_grid;
+    jog_step = u.jog_step; edelay = u.edelay; s21_offset = u.s21_offset; port_z = u.port_z > 0 ? u.port_z : 50;
+    clamp_markers();
+}
+int ui_cfg_get(uint8_t *b)
+{
+    ui_cfg_t c = { tm_ax, tm_bx, tm_ay, tm_by, tm_swap, flipped, touch_ok, 0 };
+    bcopy_(b, &c, sizeof c); return sizeof c;
+}
+void ui_cfg_put(const uint8_t *b, int n)
+{
+    if (n != (int)sizeof(ui_cfg_t)) return;
+    ui_cfg_t c; bcopy_(&c, b, sizeof c);
+    tm_ax = c.ax; tm_bx = c.bx; tm_ay = c.ay; tm_by = c.by; tm_swap = c.swap; touch_ok = c.touch_ok;
+    if (c.flipped != flipped) { flipped = c.flipped; madctl ^= 0xC0; if (lcd_ready) lcd_cmd(0x36, &madctl, 1); }
+}
+void ui_redraw_full(void) { dirty |= D_FULL; }
+
 /* ---------- drawing and entry points ---------- */
 static void render(void)
 {
@@ -1501,7 +1561,22 @@ static void cmd_ui(int argc, char **argv)
     }
     else if (streq(a, "select") && argc == 3 && decval(argv[2], &x)) { if (menu_open && mode == MODE_MAIN) menu_select(x); }
     else if (streq(a, "redraw")) dirty |= D_FULL;
-    else { con_puts("usage: ui [state|tap <x> <y>|jog l|r|L|R|rr|menu <name>|select <row>|redraw]\r\n"); return; }
+    else if (streq(a, "labels")) {                   /* every menu label against its button, at the menu font */
+        int keep = menu_id, over = 0, total = 0;
+        for (int id = 0; id < MN_N; id++) {
+            menu_id = id;
+            for (int r = 0; r < menu_len(id); r++) {
+                char b[28]; int ck = item_label(menus[id][r], b);
+                int room = W - 2 - (MX + 5) - ((ck == CK_ON || ck == CK_OFF) ? 13 : 0), w = ftext_w(b, &font_s);
+                total++;
+                if (w > room) { over++; con_puts(menu_name[id]); con_puts(": \""); con_puts(b); con_puts("\" "); con_udec(w); con_puts(" px > "); con_udec(room); con_puts("\r\n"); }
+            }
+        }
+        menu_id = keep;
+        con_udec(total); con_puts(" labels, "); con_udec(over); con_puts(" too wide\r\n");
+        return;
+    }
+    else { con_puts("usage: ui [state|tap <x> <y>|jog l|r|L|R|rr|menu <name>|select <row>|labels|redraw]\r\n"); return; }
     if (dirty) render();
     print_ui();
 }

@@ -680,7 +680,7 @@ code.
   range, reset, reset all, apply, enhanced response on/off; config touch
   cal, touch test, version, flip display, bootload (waits for the jog to be
   released: the ROM bootloader hazard). Items not built yet are shown dimmed.
-  Still to come: 2) save/recall slots 0-6, save/clear config (flash);
+  Phase 2 (save/recall, save/clear config) is stage 14. Still to come:
   3) measure modes (L/C match, cable, shunt LC, series L, crystal, Rl);
   4) transform (time domain) and stored traces (need RAM); 5) SD card
   files (the driver and FAT32 are stage 13); 6) brightness (PA5 PWM?), TX power, calibration standard model,
@@ -732,6 +732,39 @@ clean, and WRITE.TXT = "AETHERVNA WRITE OK".
 No card-detect line was found (not looked for: it needs the card removed).
 Next: S1P/S2P, screen and calibration files from the SD CARD menu.
 
+## Stage 14: saved settings and calibrations in flash (2026-11-11)
+
+Phase 2 of the stock menu map: SAVE 0-6 (CALIBRATE > SAVE, and after DONE),
+RECALL 0-6, CONFIG > SAVE CONFIG, EXPERT > CLEAR CONFIG (asks twice);
+console `save <n>`, `recall <n>`, `config [save|erase]`.
+
+| Where | What |
+|---|---|
+| 0x08050000 + n x 24 KB, n = 0-6 | slot: sweep and measurement settings, display (traces, markers, scales, E-delay, S21 offset, port Z, averaging), and the calibration standards for that sweep (open, short, load with its isolation, thru, a separate isolation), re-solved on recall |
+| 0x0807F000, 4 KB | config: touch map, display flip |
+
+Bank 1 only, above the image; link.ld refuses an image reaching 0x08050000
+and the erase routine refuses any address outside 0x08050000-0x0807FFFF, so
+the bootloader (0x08000000-0x08003FFF) and option bytes are never touched.
+Each record is erased (checked blank), written by halfwords (each read
+back), and given its header (magic, length, CRC32, layout sizes) last, so an
+interrupted save or a different firmware layout reads as empty. Slot 0 is
+recalled at power-on, as on stock.
+
+Tests: slot 1 restored traces, markers and E-delay; a synthetic calibration
+(cal put, 101 points) solved, saved to slot 2, cleared and recalled gave
+identical error terms at every point; slot 0 and the config came back after
+a reset. The test data was then erased (`config erase`). Before restoring
+the stock firmware, run `config erase` (stock keeps its own settings
+somewhere in flash we have not looked at).
+
+**Menu text, one size.** The maintainer asked for a single size: the 12 px
+font CALIBRATE used. Labels that did not fit are abbreviated (CHAN S11, REF
+POS, CAL KIT, CLEAR CFG, CONDUCT G, SUSCEPT B, RESIST R, REACT X, SHUNT Z,
+SERIES Z, PAUSE, GRID VALS, ENH RESP, FLIP); the legend keeps the full
+format names. `ui labels` checks every label against its button: 181, none
+too wide.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -742,6 +775,8 @@ tests, restored stock read the thru -3.35 dB / -28.9 deg off above 100 MHz
 brought the raw thru back to within 0.008 dB / 0.07 deg of the calibration-time
 recording (2026-11-10).
 
+0. On our firmware, `config erase` first (clears 0x08050000-0x0807FFFF,
+   where our saved settings and calibrations live).
 1. Our firmware's `bootloader` command, or power on with the jog held.
 2. Write the stock image (`liteVNA64-260713.bin`) at 0x08004000 with the bench's V2-protocol flash tool, which follows Zeenko's documented DFU registers.
 3. Zeenko's bootloader (0x08000000–0x08003FFF) and the option bytes are never
@@ -768,4 +803,5 @@ recording (2026-11-10).
 - Stage 12: stock-style UI with Smith chart, menus, touch and jog, console
   mirror and screen capture; menu tree after the stock map, phase 1.
 - Stage 13: microSD on SPI1 with chip select PB9; FAT32 read and write
-  checked against the maintainer's test card. Next: touch map, settings and calibration in flash.
+  checked against the maintainer's test card.
+- Stage 14: save/recall slots 0-6 and config in flash; one menu font size. Next: touch map, settings and calibration in flash.

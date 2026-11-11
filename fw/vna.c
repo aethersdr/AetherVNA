@@ -517,8 +517,9 @@ void cal_apply(int i, cpx *s11, cpx *s21)
 
 int cal_std_get(int which, int i, cpx *s11, cpx *s21)
 {
-    if (which < 0 || which >= CAL_N || !(cal_have & (1u << which)) || i < 0 || i >= cal_cfg.points) return -1;
+    if (which < 0 || which > CAL_ISOLN || !(cal_have & (1u << which)) || i < 0 || i >= cal_cfg.points) return -1;
     switch (which) {
+    case CAL_ISOLN: *s11 = c_mk(0, 0); *s21 = std_iso[i]; break;
     case CAL_OPEN:  *s11 = std_open[i]; *s21 = c_mk(0, 0); break;
     case CAL_SHORT: *s11 = std_short[i]; *s21 = c_mk(0, 0); break;
     case CAL_LOAD:  *s11 = std_load[i]; *s21 = std_iso[i]; break;
@@ -530,10 +531,11 @@ int cal_std_get(int which, int i, cpx *s11, cpx *s21)
  * host can restore a calibration it saved; "cal done" then solves as usual. */
 int cal_std_put(int which, int i, cpx s11, cpx s21)
 {
-    if (which < 0 || which >= CAL_N || i < 0 || i >= sweep_cfg.points) return -1;
+    if (which < 0 || which > CAL_ISOLN || i < 0 || i >= sweep_cfg.points) return -1;
     if (cal_have && !same_cfg(&cal_cfg, &sweep_cfg)) cal_have = 0;
     cal_cfg = sweep_cfg; terms_ok = 0;
     switch (which) {
+    case CAL_ISOLN: std_iso[i] = s21; break;
     case CAL_OPEN:  std_open[i] = s11; break;
     case CAL_SHORT: std_short[i] = s11; break;
     case CAL_LOAD:  std_load[i] = s11; std_iso[i] = s21; break;

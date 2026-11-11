@@ -606,6 +606,7 @@ void vna_init(void)
 }
 void vna_background(void)
 {
+    if (usb_enumerating()) return;                   /* polled USB: no 6-20 ms settles while a host enumerates (2 ms rule) */
     if (!sweep_running) { bg_i = 0; return; }
     if (!clock_on_tcxo() && !clock_use_tcxo()) { sweep_running = 0; return; }
     if (bg_i == 0) adc_init();

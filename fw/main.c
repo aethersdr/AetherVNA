@@ -168,6 +168,7 @@ int main(void)
 {
     clocks_init();
     gpio_init();
+    clock_use_tcxo();               /* before USB: it then runs from the TCXO PLL (usb.c), not the untrimmed HICK */
     usb_init();
     vna_init();
     store_boot();                   /* config and slot 0, if saved */

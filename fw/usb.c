@@ -122,10 +122,14 @@ static const uint8_t *string_desc(int idx, uint16_t *len)
     return str_buf;
 }
 
+static uint32_t n_reset, n_susp, n_wake, n_restart, enum_t; static uint8_t enum_wd, restart_run;
+/* Kept across a chip reset (.noinit), to see afterwards what the watchdog did. */
+static struct { uint32_t magic, sysresets, restarts_before; } usb_keep __attribute__((section(".noinit")));
 static uint8_t tx_ring[1024];   /* 4 KB before stage 17; output just waits on the host a little more */ static uint16_t tx_head, tx_tail; static uint8_t tx_busy, tx_last_full;
 
 static void configure_data_eps(void)
 {
+    enum_wd = 0; restart_run = 0;
     ep_init(1, 0x0001, BUF_EP1_TX, 0, 0);              /* bulk IN */
     ep_set_tx(1, TX_NAK); tx_busy = 0; tx_last_full = 0;
     ep_init(2, 0x0002, 0, BUF_EP2_RX, 0x8400);         /* bulk OUT, 64 bytes */
@@ -181,6 +185,27 @@ static void usb_reset(void)
 
 volatile uint8_t usb_host_seen;
 static uint32_t hick_trim_boot;
+/* The USB clock. On the TCXO the PLL runs at exactly 48 MHz: USB takes it
+ * undivided (CRM_CFG USBDIV {27,23:22} = 001, CRM_MISC3 HICK_TO_USB = 0), at
+ * the TCXO's accuracy. Otherwise the HICK at 48 MHz with ACC trimming it
+ * from the host's SOFs (Artery's recommendation; FAQ0134), which proved
+ * marginal: its trim never moved, and enumerations failed once warm. Only
+ * switched while the link is down (core in reset or pull-up off). */
+static uint8_t usb_on_pll;
+static void usb_clock_select(void)
+{
+    if (clock_on_tcxo()) {
+        CRM_CFG = (CRM_CFG & ~((1u << 27) | (3u << 22))) | (1u << 22);
+        CRM_MISC3 &= ~(1u << 8);
+        ACC_CTRL1 = 0;
+        usb_on_pll = 1;
+    } else {
+        CRM_MISC3 |= 1u << 8;
+        ACC_CTRL1 = (1u << 8) | (1u << 1) | 1u;
+        usb_on_pll = 0;
+    }
+}
+void usb_report(void);
 static char rx_line[160]; static uint16_t rx_len; static volatile uint8_t line_ready;
 static void tx_kick(void);
 
@@ -209,13 +234,52 @@ void con_float(float v, int decimals)
 }
 void con_flush(void) { for (uint32_t t = 0; (tx_head != tx_tail || tx_busy) && configured && t < 4000000; t++) { wdt_feed(); usb_poll(); } }
 int usb_configured(void) { return configured; }
+/* A bus reset not yet followed by SET_CONFIGURATION: the host is enumerating
+ * and must be answered within ~2 ms (SET_ADDRESS), so nothing may block. */
+int usb_enumerating(void) { return enum_wd && !configured; }
+/* Enumeration watchdog. A hot replug after a long time on battery could
+ * fail to enumerate (error -71) where a cold boot always works. If a bus
+ * reset is not followed by SET_CONFIGURATION within 1.5 s, start over as at
+ * power-on: pull-up off (the host sees a disconnect), core reset, the
+ * clock's boot trim and calibration, pull-up on (a fresh connection). Armed
+ * only by a bus reset, so it never runs with nothing plugged in. Artery's
+ * FAQ0134 likewise recovers a broken USB clock by starting over. */
+static void usb_restart(void)
+{
+    USB_CFG = 0x0002;                                /* D+ pull-up off */
+    USB_CTRL = 0x0001;                               /* core in reset */
+    ACC_CTRL1 = 0;
+    CRM_CTRL = (CRM_CTRL & ~(0x3Fu << 2)) | hick_trim_boot;
+    for (int i = 0; i < 50; i++) { wdt_feed(); delay_us(1000); }
+    USB_CTRL = 0x0000;
+    USB_INTSTS = 0;
+    usb_reset();
+    tx_head = tx_tail = 0; tx_busy = 0; tx_last_full = 0;
+    usb_clock_select();
+    USB_CFG = 0x0000;                                /* pull-up on: connect */
+    n_restart++; restart_run++;
+}
 void usb_poll(void)
 {
+    if (enum_wd && !configured && ms_ticks - enum_t > 1500) {
+        enum_wd = 0;
+        if (restart_run < 2) { usb_restart(); return; }
+        /* Restarting USB alone did not help twice: a chip reset (boot always
+         * enumerates). Never with the jog held: that starts the ROM bootloader. */
+        if (!jog_pressed()) {
+            if (usb_keep.magic != 0x55534244u) { usb_keep.magic = 0x55534244u; usb_keep.sysresets = 0; }
+            usb_keep.sysresets++; usb_keep.restarts_before = n_restart;
+            SCB_AIRCR = 0x05FA0004;
+            for (;;) ;
+        }
+        return;
+    }
     tx_kick();
     uint16_t ists = USB_INTSTS;
     if (ists & 0x0400) {                                                          /* bus reset: a host is there */
         USB_INTSTS = (uint16_t)~0x0400; usb_reset(); usb_host_seen = 1;
-        ACC_CTRL1 |= 1u;                             /* clock calibration back on: SOFs are coming */
+        if (!usb_on_pll) ACC_CTRL1 |= 1u;            /* HICK: calibration back on, SOFs are coming */
+        n_reset++; enum_t = ms_ticks; enum_wd = restart_run < 5;   /* enumeration should finish soon (not on a charger's endless reset) */
         return;
     }
     if (ists & 0x0800) {                             /* suspend: the bus went idle (unplugged, or the host asleep) */
@@ -224,10 +288,10 @@ void usb_poll(void)
          * wanders; a replug then fails to enumerate (seen 2026-11-11 after
          * ~25 min on battery). Stop it and put back the boot trim, so the
          * next connection starts like a cold boot. */
-        ACC_CTRL1 &= ~1u;
-        CRM_CTRL = (CRM_CTRL & ~(0x3Fu << 2)) | hick_trim_boot;
+        if (!usb_on_pll) { ACC_CTRL1 &= ~1u; CRM_CTRL = (CRM_CTRL & ~(0x3Fu << 2)) | hick_trim_boot; }
+        n_susp++;
     }
-    if (ists & 0x1000) { USB_INTSTS = (uint16_t)~0x1000; ACC_CTRL1 |= 1u; }        /* wakeup (resume without a reset): calibration back on */
+    if (ists & 0x1000) { USB_INTSTS = (uint16_t)~0x1000; if (!usb_on_pll) ACC_CTRL1 |= 1u; n_wake++; }   /* wakeup (resume without a reset): calibration back on */
     if (ists & 0x0200) USB_INTSTS = (uint16_t)~0x0200;                            /* SOF */
     if (ists & 0x0100) USB_INTSTS = (uint16_t)~0x0100;                            /* expected SOF missing */
     if (ists & 0x2000) USB_INTSTS = (uint16_t)~0x2000;                            /* error */
@@ -302,12 +366,25 @@ void usb_init(void)
     CRM_APB1EN |= 1u << 23;
     CRM_APB2EN |= 1u << 22;
     USB_CFG = 0x0002;                                   /* D+ pull-up off: host sees a disconnect */
+    usb_clock_select();
     USB_CTRL = 0x0001;
     for (int i = 0; i < 20; i++) delay_us(1000);
     USB_CTRL = 0x0000;
     USB_INTSTS = 0;
     usb_reset();
+    hick_trim_boot = CRM_CTRL & (0x3Fu << 2);        /* HICKTRIM before any calibration */
+    usb_clock_select();
     USB_CFG = 0x0000;
-    hick_trim_boot = CRM_CTRL & (0x3Fu << 2);        /* HICKTRIM before the calibration touches it */
-    ACC_CTRL1 = (1u << 8) | (1u << 1) | 1u;
+}
+
+void usb_reconnect(void) { con_flush(); usb_restart(); }   /* console `usb restart`: a test of enumeration as it stands */
+void usb_report(void)                                /* console `usb`: what the link has been through */
+{
+    con_puts("resets "); con_udec(n_reset); con_puts(" suspends "); con_udec(n_susp); con_puts(" wakeups "); con_udec(n_wake);
+    con_puts(" restarts "); con_udec(n_restart); con_puts(" configured "); con_udec(configured);
+    con_puts(" trim "); con_udec((CRM_CTRL >> 2) & 0x3F); con_puts(" (boot "); con_udec((hick_trim_boot >> 2) & 0x3F); con_puts(") cal "); con_udec((CRM_CTRL >> 8) & 0xFF);
+    con_puts(" acc 0x"); con_hex(ACC_CTRL1, 4);
+    con_puts(" sclk "); con_puts(clock_on_tcxo() ? "tcxo" : "hick"); con_puts(" usbclk "); con_puts(usb_on_pll ? "pll (tcxo)" : "hick+acc");
+    if (usb_keep.magic == 0x55534244u) { con_puts(" chip-resets-for-usb "); con_udec(usb_keep.sysresets); }
+    con_puts("\r\n");
 }

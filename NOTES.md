@@ -964,16 +964,27 @@ cal kit, the touch map, flip.
   AVNAFW.BIN; read back byte-identical to the built image (152,532 bytes).
   Never the bootloader below it.
 
-## Stage 22: USB after an unplug on battery; on-device calibration unplugged (2026-11-11)
+## Stage 22: USB hot replug; on-device calibration unplugged (2026-11-11)
 
-**Hot replug.** After ~25 min unplugged on battery, a replug failed to
-enumerate (descriptor reads: error -71, the host gave up); a power cycle
-recovered it. The USB clock is the internal 48 MHz HICK trimmed by ACC from
-the host's SOFs; with no SOFs the trim wanders. Now a USB suspend (the bus
-idle, as on an unplug) stops ACC and puts back the trim read at boot, and a
-bus reset or wakeup starts ACC again, so a replug starts like a cold boot.
-The core and ADC run from the TCXO PLL: measurements are unaffected (the
-host here never autosuspends the device). To confirm with a replug.
+**Hot replug: found and fixed.** A replug while the unit ran failed to
+enumerate (error -71, device descriptor reads); a cold boot always worked.
+Not the clock trim (restoring it changed nothing; Artery's RM: HICKCAL needs
+a key to be written, and the ACC's trim never moved). A forced reconnect
+from the console (`usb restart`) reproduced it with nothing unplugged, and
+with the sweep paused the same reconnect worked every time: USB here is
+polled, and a running sweep goes 6-20 ms without polling (synthesizer
+settles, band changes, captures), while a host expects the new address
+within 2 ms of SET_ADDRESS. A boot enumerates before the sweep starts.
+Now:
+- the background sweep waits while a host enumerates (a bus reset not yet
+  followed by SET_CONFIGURATION, usually under 0.3 s): 9 forced reconnects
+  while sweeping all enumerated (one single -71, retried by the host);
+- USB runs from the TCXO PLL (exactly 48 MHz: USBDIV = PLL/1, HICK_TO_USB =
+  0; the TCXO is started before USB at boot), not the HICK at its +/-1%
+  factory accuracy; HICK with ACC remains the fallback without a TCXO;
+- a watchdog: a bus reset not followed by configuration within 1.5 s
+  restarts USB (pull-up off 50 ms, core reset), twice, then resets the chip
+  (never with the jog held); `usb` shows the counters.
 
 **On-device calibration with USB unplugged** (the maintainer, HF 101 points,
 avg 4x, slot 1; checks saved as S1P/S2P to the card and read afterwards):

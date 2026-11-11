@@ -121,6 +121,9 @@ void con_udec(uint32_t v);
 void con_hex(uint32_t v, int digits);
 void con_float(float v, int decimals);
 void con_flush(void);
+void usb_report(void);
+void usb_reconnect(void);
+int  usb_enumerating(void);
 void usb_take_line(void);
 
 /* console.c */

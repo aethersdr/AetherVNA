@@ -315,6 +315,7 @@ void console_line(char *line)
     }
     else if (streq(c, "lcd") || streq(c, "backlight") || streq(c, "touch") || streq(c, "trace") || streq(c, "marker") || streq(c, "display") || streq(c, "ui") || streq(c, "measure") || streq(c, "point") || streq(c, "transform") || streq(c, "calkit")) ui_command(argc_, argv_);
     else if (streq(c, "sd")) sd_command(argc_, argv_);
+    else if (streq(c, "usb")) { if (argc_ == 2 && streq(argv_[1], "restart")) usb_reconnect(); else usb_report(); }
     else if (streq(c, "time")) {                     /* time [YYYYMMDDhhmmss] */
         if (argc_ == 2) {
             const char *s = argv_[1]; int v[14], n = 0;

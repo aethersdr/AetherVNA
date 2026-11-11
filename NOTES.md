@@ -953,8 +953,9 @@ cal kit, the touch map, flip.
   the thru on, port 1 is near flat and port 2 large, as they should be.
 - SET TIME: the RTC runs on the 32.768 kHz crystal (it started); seconds
   since 2000 in the battery-powered domain, which kept time across a reset
-  (to the second against the host). SD files get the date and time.
-  Whether it survives power-off depends on the VBAT pin: to check.
+  (to the second against the host), and across a power-off (switched off
+  and USB unplugged for ~10 s by the maintainer: still to the second), so
+  the chip's VBAT stays powered. SD files get the date and time.
 - BRIGHTNESS (CONFIG): PA5, the backlight control, is also DAC channel 2.
   The maintainer watched it step from 3.3 V to 0 V and it dimmed
   gradually, so: 100% drives PA5 high as before, 80-20% are DAC levels on

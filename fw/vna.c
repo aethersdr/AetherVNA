@@ -197,9 +197,10 @@ static int mx_tune(uint64_t f, uint64_t *tuned)
 static int band = -1;                               /* 0 low (MS5351M), 1 high (MAX2871) */
 void synth_all_off(void) { ms_outputs_off(); mx_off(); band = -1; }
 uint32_t tune_settle_us = 0;                        /* extra delay after each retune (console: tsettle) */
-/* Measured on the bench unit (NOTES.md): the MS5351M needs ~3.5 ms after its PLL
- * reset, the MAX2871 pair 300 us, and a band change longer. */
-#define SETTLE_LOW_US  4000                 /* MS5351M: 3.5 ms measured for <0.01 dB repeat */
+/* Measured on the bench unit (NOTES.md): after its PLL reset the MS5351M needs
+ * ~3.5 ms to repeat and ~6 ms to settle within 0.001 dB; the MAX2871 pair
+ * 300 us; a band change longer. */
+#define SETTLE_LOW_US  6000                 /* MS5351M: repeat <0.01 dB from 3.5 ms; 6 ms leaves <0.001 dB mean bias */
 #define SETTLE_HIGH_US 300
 #define SETTLE_BAND_US 10000
 /* IF gain by frequency, measured with the thru (NOTES.md): keeps the largest of

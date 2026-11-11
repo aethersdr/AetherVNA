@@ -400,7 +400,15 @@ and `reset` refuse while the jog reads pressed (Artery's ROM bootloader hazard).
 | | 6.5 ms / 16.5 ms | 0.006 / 0.007 dB (no further gain) |
 | MAX2871 (>= 100 MHz) | 300 us; +1 ms or +5 ms extra changed nothing | noise-limited, see below |
 
-Chosen: 4 ms low band, 300 us high band, 10 ms at a band change.
+Settling bias (8 interleaved sweeps per setting, 50 kHz-99 MHz, against
+16 ms): scatter is the same at every setting (median sd 0.0011-0.0014 dB), but
+4 ms leaves a repeatable offset of -0.0017 dB mean (0.0044 dB worst point,
+far outside the 0.0001 dB noise of the mean); 6 ms -0.0006 dB (0.0022 dB);
+10 ms 0.0000 dB (0.0012 dB). Time for those 34 points: 1.01, 1.08, 1.21, 1.42 s.
+
+Chosen: 6 ms low band (most of the bias gone for 7 % more low-band time;
+10 ms buys the last 0.0006 dB for 13 % more, below calibration and SMA
+re-mating at 0.05-0.08 dB), 300 us high band, 10 ms at a band change.
 
 **Range, raw thru levels** (`flags`, IF gain x1): reference 1557 counts at
 50 kHz, 651 at 1 MHz, about 200 at 1-3 GHz, 40-50 at 5.5-6.3 GHz. Every point

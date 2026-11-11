@@ -217,6 +217,47 @@ move; every other candidate is held static.
   (-25 dB). No other candidate changes it, low or high. Receive-side switch
   lines need the receive chain to find.
 
+## Stage 3: MS5351M role and the receive path, low band (2026-11-10)
+
+`msw` writes MS5351M registers (AN619 map: integer and fractional PLL and
+multisynth words); `adc0 n` captures PA0 at 1.714 MS/s (the first sample is the
+converter's start-up value and is dropped). MAX2871 off throughout.
+
+**Stimulus (tinySA on port 1):** PLL A = 24 MHz x 32, CLK0/1/2 = /64, /72, /80.
+Only **CLK2** reaches port 1: 9.5999 MHz at -0.5 dBm (1 kHz RBW), so the
+**MS5351M reference is 24.000 MHz** (same TCXO as the MAX2871). It needs **PA6
+low** (path to port 1; PA6 high: -91 dBm) and **PA8 low** (source select;
+PA8 high: -68.5 dBm, and high selects the MAX2871). A released pin keeps its
+last level on its own capacitance, which first made PA8 alone look sufficient.
+
+**Receiver:** stimulus CLK2 = 9.600 MHz (PLL A), candidate LO 9.612 MHz on
+PLL B (24 x (32 + 1/25), /80): a 12 kHz IF at PA0.
+
+| Condition | IF at PA0 |
+|---|---|
+| LO = **CLK0**, PA7 low | ~410 counts (port 1 on the tinySA's 50 ohm) |
+| LO = CLK1, PA7 low | 6 counts (leakage) |
+| PA7 not low, any other single pin | noise (~0.2 counts) |
+
+**CLK0 is the receiver LO.** Channel select **PA7: low = port 1 reflection,
+high = port 2 transmission**:
+
+| Port setup | PA7 low (port 1) | PA7 high (port 2) |
+|---|---|---|
+| port 1 to the tinySA (matched) | 418 counts | - |
+| port 1 open | 2576 counts (clipping) | 0.3 counts |
+| thru (port 2 cable on port 1) | 319 counts | 2584 counts (clipping, 0..4095) |
+
+**IF gain: PB14, PB15** (the V2's baseband-gain pair): low cuts the IF (PB14
+-12.5 dB, PB15 -8.6 dB; both -18 dB). The transmission channel still clips
+with both low at full MS5351M drive (8 mA): drive strength or gain must be
+chosen per band.
+
+No other pin (PA4, PA9, PA10, PB0, PB2, PB9, PB12, PC13-PC15) changes the
+stimulus or the IF in this band; no separate reference channel was found. They
+may act only with the MAX2871 (high band), which is next: its LO arrangement
+(CLK0 harmonics or otherwise) and the remaining pins.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -238,6 +279,5 @@ recording (2026-11-10).
 - Stage 2a (I2C scan): done, MS5351M at 0x60 on PB10/PB11.
 - Stage 2c: touch, display, backlight and jog mapped; MAX2871 not found by
   MUX/LD response.
-- Stage 2e: MAX2871 on PA2/PA3/PA1, 24 MHz reference, PA6/PA8 steer the
-  stimulus. Next: the MS5351M's role (low-band stimulus or LO), the receive
-  path into PA0 and its switch lines, then sweeps.
+- Stage 3: low band mapped (CLK2 stimulus, CLK0 LO, PA7 channel, PB14/PB15
+  gain). Next: high band (MAX2871 stimulus, its LO), then a first sweep.

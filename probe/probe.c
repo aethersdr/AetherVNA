@@ -600,6 +600,53 @@ static int ms5351_read(uint8_t reg, uint8_t *dst, int n)
     i2c_stop();
     return 1;
 }
+/* msw <reg> <v1> [v2 ...]: write consecutive MS5351M registers (AN619 map). */
+static void cmd_msw(const char *q)
+{
+    int vals[12], n = 0;
+    while (*q && n < 12) {
+        while (*q == ' ') q++;
+        int x = 0, any = 0; while (*q >= '0' && *q <= '9') { x = x * 10 + (*q++ - '0'); any = 1; }
+        if (!any || x > 255) break;
+        vals[n++] = x;
+    }
+    if (n < 2) { con_puts("usage: msw <reg> <value> [value...]\r\n"); return; }
+    i2c_scl = 0x1A; i2c_sda = 0x1B; od_mode(i2c_scl); od_mode(i2c_sda); delay(300);
+    i2c_start();
+    int ok = i2c_write_byte(0x60 << 1);
+    for (int i = 0; ok && i < n; i++) ok = i2c_write_byte(vals[i]);
+    i2c_stop();
+    pin_release(i2c_scl); pin_release(i2c_sda);
+    con_puts(ok ? "ok\r\n" : "error: no ACK\r\n");
+}
+
+/* adc0 <n>: n samples of PA0 (ADC ch0), back-to-back, as hex; reports the
+ * sample rate measured with the cycle counter. */
+static uint16_t adc_buf[8192];
+static void cmd_adc0(int n)
+{
+    if (n < 16 || n > 8192) { con_puts("usage: adc0 <16..8192>\r\n"); return; }
+    ADC_SPT1 = 0; ADC_SPT2 = 0;                        /* 1.5-cycle sample time everywhere */
+    ADC_CTRL2 = (7u << 17) | (1u << 20) | 1u;
+    delay(5000);
+    ADC_CTRL2 |= 1u << 3; for (uint32_t t = 0; (ADC_CTRL2 & 8) && t < 100000; t++) ;
+    ADC_CTRL2 |= 1u << 2; for (uint32_t t = 0; (ADC_CTRL2 & 4) && t < 100000; t++) ;
+    pin_cfg(0x00, 0);
+    ADC_OSQ1 = 0; ADC_OSQ3 = 0;
+    ADC_CTRL2 |= 1u << 1;                              /* repeat (continuous) */
+    ADC_CTRL2 |= 1u << 22;
+    uint32_t t0 = DWT_CYCCNT;
+    for (int i = 0; i < n; i++) {
+        while (!(ADC_STS & 2)) ;
+        adc_buf[i] = ADC_ODT & 0xFFF;
+    }
+    uint32_t cyc = DWT_CYCCNT - t0;
+    ADC_CTRL2 = 0;
+    con_puts("rate_hz "); con_dec((uint32_t)((uint64_t)n * 48000000ull / cyc)); con_puts("\r\n");
+    for (int i = 0; i < n; i++) { con_hex(adc_buf[i], 3); if ((i & 31) == 31) con_puts("\r\n"); }
+    con_puts("\r\nend\r\n");
+}
+
 static void cmd_ms5351(void)
 {
     static const struct { uint8_t reg, n; const char *name; } blocks[] = {
@@ -972,6 +1019,10 @@ static void command(char *line)
         cmd_adc();
     } else if (streq(line, "i2cscan")) {
         cmd_i2cscan();
+    } else if (line[0] == 'm' && line[1] == 's' && line[2] == 'w' && line[3] == ' ') {
+        cmd_msw(line + 4);
+    } else if (prefix_num(line, "adc0", &(int){0})) {
+        int k = 0; prefix_num(line, "adc0", &k); cmd_adc0(k);
     } else if (streq(line, "ms5351")) {
         cmd_ms5351();
     } else if (streq(line, "synthsearch")) {
@@ -1015,7 +1066,7 @@ static void command(char *line)
     } else if (streq(line, "jog")) {
         cmd_jog();
     } else if (streq(line, "help")) {
-        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | synthrf [k] | rfprog c d le n | rfrelease | pin c 0|1|r | bootloader | reset | help\r\n");
+        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | synthrf [k] | rfprog c d le n | rfrelease | pin c 0|1|r | msw reg v.. | adc0 n | bootloader | reset | help\r\n");
     } else {
         con_puts("error: unknown command; help lists them\r\n");
     }

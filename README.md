@@ -36,6 +36,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 2b: MS5351M registers read at power-on (reference present, PLLs lock) | Done |
 | 2c: touch, display (write-only), backlight PA5, jog mapped; MAX2871 needs an RF method | Done |
 | 2d/2e: MAX2871 on CLK PA2, DATA PA3, LE PA1; 24 MHz reference; stimulus switches PA6, PA8 | Done |
+| 3: low band: CLK2 stimulus, CLK0 LO, 24 MHz reference, PA7 channel select, PB14/PB15 IF gain; IF seen at PA0 | Done |
 | Later: synthesizers, RF switches, ADC, sweeps, calibration, console API | Planned |
 
 ## Build and flash

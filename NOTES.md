@@ -964,6 +964,28 @@ cal kit, the touch map, flip.
   AVNAFW.BIN; read back byte-identical to the built image (152,532 bytes).
   Never the bootloader below it.
 
+## Stage 22: USB after an unplug on battery; on-device calibration unplugged (2026-11-11)
+
+**Hot replug.** After ~25 min unplugged on battery, a replug failed to
+enumerate (descriptor reads: error -71, the host gave up); a power cycle
+recovered it. The USB clock is the internal 48 MHz HICK trimmed by ACC from
+the host's SOFs; with no SOFs the trim wanders. Now a USB suspend (the bus
+idle, as on an unplug) stops ACC and puts back the trim read at boot, and a
+bus reset or wakeup starts ACC again, so a replug starts like a cold boot.
+The core and ADC run from the TCXO PLL: measurements are unaffected (the
+host here never autosuspends the device). To confirm with a replug.
+
+**On-device calibration with USB unplugged** (the maintainer, HF 101 points,
+avg 4x, slot 1; checks saved as S1P/S2P to the card and read afterwards):
+1.8-55 MHz short -0.009..+0.004 dB, open +/-0.002 dB, thru -0.003..+0.005 dB;
+below 1.8 MHz the same pattern as the host calibration with USB connected:
+the 50 kHz point off (short +0.133 dB, open -0.09 dB and 3.5 deg, load
+-29 dB, thru 1.7 deg) and a +0.018 dB hump near 0.6 MHz. Unplugging USB
+changes nothing: no ground loop through the PC. At 50 kHz the raw
+directivity is only 5.7 dB, so the correction magnifies any change in how
+a standard seats; the error falls as the directivity improves with
+frequency. Agent-driven tests now run with the screen off (bench driver).
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch

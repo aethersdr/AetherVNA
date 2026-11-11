@@ -180,6 +180,7 @@ static void usb_reset(void)
 }
 
 volatile uint8_t usb_host_seen;
+static uint32_t hick_trim_boot;
 static char rx_line[160]; static uint16_t rx_len; static volatile uint8_t line_ready;
 static void tx_kick(void);
 
@@ -212,9 +213,21 @@ void usb_poll(void)
 {
     tx_kick();
     uint16_t ists = USB_INTSTS;
-    if (ists & 0x0400) { USB_INTSTS = (uint16_t)~0x0400; usb_reset(); usb_host_seen = 1; return; }   /* bus reset: a host is there */
-    if (ists & 0x0800) USB_INTSTS = (uint16_t)~0x0800;                            /* suspend: ignore */
-    if (ists & 0x1000) USB_INTSTS = (uint16_t)~0x1000;                            /* wakeup */
+    if (ists & 0x0400) {                                                          /* bus reset: a host is there */
+        USB_INTSTS = (uint16_t)~0x0400; usb_reset(); usb_host_seen = 1;
+        ACC_CTRL1 |= 1u;                             /* clock calibration back on: SOFs are coming */
+        return;
+    }
+    if (ists & 0x0800) {                             /* suspend: the bus went idle (unplugged, or the host asleep) */
+        USB_INTSTS = (uint16_t)~0x0800;
+        /* Without SOFs the automatic trim of the 48 MHz HICK (the USB clock)
+         * wanders; a replug then fails to enumerate (seen 2026-11-11 after
+         * ~25 min on battery). Stop it and put back the boot trim, so the
+         * next connection starts like a cold boot. */
+        ACC_CTRL1 &= ~1u;
+        CRM_CTRL = (CRM_CTRL & ~(0x3Fu << 2)) | hick_trim_boot;
+    }
+    if (ists & 0x1000) { USB_INTSTS = (uint16_t)~0x1000; ACC_CTRL1 |= 1u; }        /* wakeup (resume without a reset): calibration back on */
     if (ists & 0x0200) USB_INTSTS = (uint16_t)~0x0200;                            /* SOF */
     if (ists & 0x0100) USB_INTSTS = (uint16_t)~0x0100;                            /* expected SOF missing */
     if (ists & 0x2000) USB_INTSTS = (uint16_t)~0x2000;                            /* error */
@@ -295,5 +308,6 @@ void usb_init(void)
     USB_INTSTS = 0;
     usb_reset();
     USB_CFG = 0x0000;
+    hick_trim_boot = CRM_CTRL & (0x3Fu << 2);        /* HICKTRIM before the calibration touches it */
     ACC_CTRL1 = (1u << 8) | (1u << 1) | 1u;
 }

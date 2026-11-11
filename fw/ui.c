@@ -698,7 +698,7 @@ static void draw_readout(void)
     for (int m = 0; m < 4; m++) if (mk[m].on && m != mk_act) { p = put_s(p, "  M"); p = put_u(p, m + 1, 1); *p++ = ' '; p = put_freq(p, point_freq(mk[m].idx)); }
     line_text(2, RY0 + RDY, b, C_DIM, xm);
 }
-static uint8_t touch_ok;
+static uint8_t touch_ok = 1;
 static void draw_status(void)
 {
     int xm = menu_open ? MX : W;
@@ -716,9 +716,9 @@ static void draw_status(void)
 
 /* ---------- touch ---------- */
 /* Screen = a * raw + b on each axis; `swap` when the panel's x is the
- * controller's Y channel. Unset until TOUCH CAL (or `touch map`), and taps
- * are ignored until then. */
-static float tm_ax, tm_bx, tm_ay, tm_by; static uint8_t tm_swap;
+ * controller's Y channel (it is on this board). The default is the bench
+ * unit's TOUCH CAL of 2026-11-11; TOUCH CAL or `touch map` replaces it. */
+static float tm_ax = -0.131839f, tm_bx = 519.89f, tm_ay = 0.094118f, tm_by = -35.39f; static uint8_t tm_swap = 1;
 static uint8_t pen, tcal_step; static uint16_t tcal_raw[3][2];
 static const int16_t tcal_pt[3][2] = { { 40, 40 }, { 440, 40 }, { 40, 280 } };
 static int touch_raw(uint16_t *x, uint16_t *y)

@@ -654,8 +654,10 @@ code.
   highlight, holding right (700 ms) selects, holding left goes back.
 - Touch: HR2046 pen line (PB8) and pressure, four-sample average; mapped by
   a three-cross TOUCH CAL (which raw channel is screen x is found from the
-  taps). Taps are ignored until then; the map lives in RAM until settings
-  go to flash.
+  taps). The maintainer's TOUCH CAL on the bench unit (ax -0.131839,
+  bx 519.89, ay 0.094118, by -35.39, swap 1: the panel's x is the
+  controller's Y channel) is the built-in default; taps then opened the menu
+  and hit the right buttons. A new TOUCH CAL lasts until power-off.
 - Console mirror: `trace`, `marker`, `ui state|tap|jog`, `touch cal|map`.
   `lcd capture` redraws the screen while streaming every window's pixels
   as RGB565 runs; `host/screenshot.py` rebuilds a PNG (480x320 in about 2 s).

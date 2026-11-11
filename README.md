@@ -57,7 +57,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 9: settling, averaging and detector tuned for accuracy: 101 points 1 MHz-1 GHz in 2.6 s within 0.003 dB, 401 points to 6.3 GHz in 15.5 s within 0.03 dB | Done |
 | 10: HF focus: default sweep 50 kHz-55 MHz, synthesizers off between host sweeps, `info` reports how long the high band has been off (its heat moves HF readings) | Done |
 | 11: first full calibration and checks on the HF plan; USB replies ending on a full packet end with a zero-length packet (a scan could hang) | Done |
-| 12: stock-style UI: four traces (log mag, phase, SWR, Smith, linear, R, X, \|Z\|), Smith chart over the grid, four markers with search, menus (display, marker, sweep with keypad and HF band presets, on-device calibration), touch and jog input, all mirrored on the console; `lcd capture` and `host/screenshot.py` for checking the screen over USB | Built and driven over the console; touch calibration needs a person |
+| 12: stock-style UI: four traces (log mag, phase, SWR, Smith, linear, R, X, \|Z\|), Smith chart over the grid, four markers with search, menus (display, marker, sweep with keypad and HF band presets, on-device calibration), touch and jog input, all mirrored on the console; `lcd capture` and `host/screenshot.py` for checking the screen over USB | Done: driven over the console, touch checked by hand |
 | Later: saved settings, calibration and touch map in flash, open/short level check above 1 GHz | Planned |
 
 ## Build and flash
@@ -96,8 +96,8 @@ commands follow NanoVNA-D so existing tools can drive it:
 
 On the device: tap the screen (or double-click the jog right) for the menu;
 with a menu open, jog clicks move the highlight, holding right selects and
-holding left goes back. Touch needs TOUCH CAL once per power-on until the
-mapping is saved in flash.
+holding left goes back. Touch works from power-on with a mapping measured
+on the bench unit; TOUCH CAL (main menu) redoes it, until power-off.
 
 With the screen running, host-driven sweeps are slower (it redraws between
 commands); `lcd off` or `pause` gives the full speed.

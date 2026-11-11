@@ -227,6 +227,16 @@ uint16_t tsc_read(uint8_t cmd)
     spi_speed(0);
     return ((a << 8 | b) >> 3) & 0xFFF;
 }
+/* The touch controller's two temperature diodes (TSC2046 TEMP0/TEMP1,
+ * single-ended), 16 conversions each, summed: a second temperature proxy,
+ * away from the MCU. Their difference tracks temperature without the
+ * supply's own drift. */
+void tsc_temps(uint32_t *t0, uint32_t *t1)
+{
+    uint32_t a = 0, b = 0;
+    for (int k = 0; k < 16; k++) { a += tsc_read(0x84); b += tsc_read(0xF4); }
+    *t0 = a; *t1 = b;
+}
 uint16_t vbat_counts(void) { uint32_t s = 0; for (int i = 0; i < 4; i++) s += tsc_read(0xA4); return s / 4; }
 /* VBAT input divides by 4, single-ended against the supply. Scale set so
  * that 1299 counts reads 4.07 V, as stock reported in the same state (NOTES.md). */

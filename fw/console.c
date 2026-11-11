@@ -8,6 +8,7 @@
 #include "hw.h"
 #include "vna.h"
 #include "ui.h"
+#include "lcd.h"
 
 #ifndef GIT_VERSION
 #define GIT_VERSION "unknown"
@@ -111,7 +112,14 @@ static void cmd_cal(void)
         for (int k = 0; k < CAL_N; k++) if (cal_have & (1 << k)) { con_puts(names[k]); con_putc(' '); }
         if (cal_have & CAL_ISO_BIT) con_puts("isoln ");
         if (cal_valid()) con_puts(cal_on ? "applied" : "off");
+        if (cal_have) { float d; if (cal_temp_delta(&d)) con_puts(" temp unknown"); else if (cal_temp_moved()) con_puts(" temp moved: recalibrate"); else con_puts(" temp ok"); }
         nl(); return;
+    }
+    if (streq(argv_[1], "temp")) {                    /* cal temp [mV]: a restored calibration's temperature */
+        float v, cm;
+        if (argc_ > 2) { if (!cal_have || !parse_f(argv_[2], &v)) { con_puts("usage: cal temp <mV> (after restoring a calibration)\r\n"); return; } cal_temp_set(v); }
+        if (cal_temp_get(&cm)) con_puts("unknown\r\n"); else { con_float(cm, 2); con_puts(" mV\r\n"); }
+        return;
     }
     if (streq(argv_[1], "enhanced")) {
         if (argc_ > 2) cal_enhanced = argv_[2][0] == '1';
@@ -153,7 +161,7 @@ static void cmd_cal(void)
     if (streq(argv_[1], "on")) { if (cal_valid()) { cal_on = 1; con_puts("ok\r\n"); } else con_puts("error: no calibration for this sweep\r\n"); return; }
     if (streq(argv_[1], "off")) { cal_on = 0; con_puts("ok\r\n"); return; }
     if (streq(argv_[1], "reset")) { cal_reset(); con_puts("ok\r\n"); return; }
-    con_puts("usage: cal [open|short|load|thru|isoln|done|on|off|reset|enhanced [0|1]|get <std|terms>|put <std> <i> 4 values]\r\n");
+    con_puts("usage: cal [open|short|load|thru|isoln|done|on|off|reset|enhanced [0|1]|temp [mV]|get <std|terms>|put <std> <i> 4 values]\r\n");
 }
 
 /* raw: one capture at the current tuning, the samples and the device's own
@@ -179,7 +187,7 @@ static void cmd_raw(void)
 static void cmd_help(void)
 {
     con_puts("measurement: scan <start> <stop> [points] [outmask] | sweep [start stop [points]] | data [0|1] |\r\n"
-             "  frequencies | cal [open|short|load|thru|isoln|done|on|off|reset|enhanced [0|1]] | cal get <std|terms> |\r\n"
+             "  frequencies | cal [open|short|load|thru|isoln|done|on|off|reset|enhanced [0|1]|temp [mV]] | cal get <std|terms> |\r\n"
              "  calkit [ideal|open ..|short ..|load ..|thru ..] |\r\n"
              "  cal put <std> <i> <s11re> <s11im> <s21re> <s21im> | pause | resume | flags |\r\n"
              "  settle [samples] | tsettle [us] | avg [auto|n] | gain [auto|0..3] | bracket [0|1] | retune [0|1] | power [0-3] |\r\n"
@@ -189,7 +197,7 @@ static void cmd_help(void)
              "  transform [on|off|impulse|step|bandpass|window min|normal|max] |\r\n"
              "  ui [state|tap <x> <y>|jog l|r|L|R|rr|menu <name>|select <row>|redraw] | touch [cal|map [ax bx ay by swap]] |\r\n"
              "  lcd [init|test|ui [nosweep]|off|capture|madctl <hex>|inv 0|1|marker <i>|status] | backlight [0|1]\r\n"
-             "instrument: version | info | vbat | temp | clk [tcxo] | sd [status|probe|cs <pin>|init|mount|ls|verify|write] |\r\n"
+             "instrument: version | info | vbat | temp [comp 0|1|warn <mV>] | clk [tcxo] | sd [status|probe|cs <pin>|init|mount|ls|verify|write] |\r\n"
              "  save <0-6> | recall <0-6> | config [save|erase] | bootloader | reset\r\n"
              "diagnostics: point <i> <4 values> (paused) | raw <freq> | tune <freq> | ms r <reg> <n> | ms w <reg> <v>... | mx <le pin> <hex> | pin <code> <0|1|r>\r\n"
              "frequencies take k, M, G suffixes; outmask: 1 freq, 2 S11, 4 S21, 8 uncalibrated\r\n");
@@ -276,7 +284,21 @@ void console_line(char *line)
         con_puts(" pressed "); con_udec(jog_pressed()); nl();
     }
     else if (streq(c, "temp")) {
-        con_float(mcu_sensor_mv(), 2); con_puts(" mV (MCU temperature sensor)\r\n");
+        if (argc_ == 3 && streq(argv_[1], "comp") && (argv_[2][0] == '0' || argv_[2][0] == '1') && !argv_[2][1]) {
+            temp_comp = argv_[2][0] == '1'; con_puts(temp_comp ? "comp 1 (unvalidated: 0.1-2 MHz S11 only)\r\n" : "comp 0\r\n"); return; }
+        if (argc_ == 3 && streq(argv_[1], "warn")) { float v;
+            if (!parse_f(argv_[2], &v) || v <= 0 || v > 100) { con_puts("usage: temp warn <mV, 0-100>\r\n"); return; }
+            temp_warn_mv = v; con_puts("ok\r\n"); return; }
+        if (argc_ > 1) { con_puts("usage: temp [comp 0|1 | warn <mV>]\r\n"); return; }
+        uint32_t t0, t1; tsc_temps(&t0, &t1);
+        float lag = temp_lagged_mv(), cm, d;
+        con_float(mcu_sensor_mv(), 2); con_puts(" mV (MCU temperature sensor) tsc ");
+        con_udec(t0); con_putc(' '); con_udec(t1); con_puts(" (TEMP0 TEMP1, sums of 16) lagged ");
+        con_float(lag, 2); con_puts(" cal ");
+        if (cal_temp_get(&cm) == 0) { con_float(cm, 2); cal_temp_delta(&d); con_puts(" delta "); if (d < 0) { con_putc('-'); d = -d; } con_float(d, 2); }
+        else con_puts("unknown delta -");
+        con_puts(" warn "); con_float(temp_warn_mv, 1); con_puts(cal_temp_moved() ? " MOVED" : " ok");
+        con_puts(" comp "); con_udec(temp_comp); nl();
     }
     else if (streq(c, "vbat")) { con_udec((uint32_t)(vbat_volts() * 1000 + 0.5f)); con_puts(" mV\r\n"); }
     else if (streq(c, "clk")) {

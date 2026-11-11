@@ -179,6 +179,7 @@ int main(void)
         if (usb_configured()) was_configured = 1;
         else if (!was_configured && usb_host_seen && ms_ticks > 10000) enter_bootloader();   /* host present, no console: hand over */
         usb_take_line();
+        temp_tick();                    /* the MCU sensor every 2 s, between sweep points */
         vna_background();               /* continuous sweep when running */
         ui_background();
     }

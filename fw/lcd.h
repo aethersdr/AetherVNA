@@ -40,4 +40,5 @@ uint8_t spi_xfer(uint8_t b);
 
 uint16_t tsc_read(uint8_t cmd);              /* TSC2046 command byte, 12-bit result */
 uint16_t vbat_counts(void);
+void tsc_temps(uint32_t *t0, uint32_t *t1);   /* sums of 16 */
 extern int16_t vbat_offset_mv;

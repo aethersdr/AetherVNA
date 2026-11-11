@@ -117,8 +117,10 @@ int store_save(int n)
     uint64_t cs, ce; int cn;
     uint8_t have = 0;
     if (cal_range(&cs, &ce, &cn) == 0 && cs == sweep_cfg.start && ce == sweep_cfg.stop && cn == sweep_cfg.points) have = cal_have;
-    uint8_t c[4] = { have, cal_on, cal_enhanced, 0 };
+    float tmv = 0; uint8_t has_t = have && cal_temp_get(&tmv) == 0;
+    uint8_t c[4] = { have, cal_on, cal_enhanced, has_t };   /* byte 3: 1 = the calibration's temperature (float, mV) follows */
     wbytes(&w, c, 4);
+    if (has_t) wbytes(&w, &tmv, sizeof tmv);
     for (int k = 0; k <= CAL_ISOLN; k++) if (have & (1u << k))
         for (int i = 0; i < sweep_cfg.points; i++) {
             cpx a, b; cal_std_get(k, i, &a, &b);
@@ -139,7 +141,8 @@ int store_recall(int n)
     for (unsigned i = 0; i < sizeof sweep_cfg; i++) d[i] = *p++;
     vna_restart();
     ui_state_put(p); p += ui_state_size();
-    uint8_t have = p[0], on = p[1], enh = p[2]; p += 4;
+    uint8_t have = p[0], on = p[1], enh = p[2], has_t = p[3] == 1; p += 4;
+    float tmv = 0; if (has_t) { uint8_t *t = (uint8_t *)&tmv; for (unsigned j = 0; j < sizeof tmv; j++) t[j] = *p++; }
     cal_reset(); cal_enhanced = enh;
     for (int k = 0; k <= CAL_ISOLN; k++) if (have & (1u << k))
         for (int i = 0; i < sweep_cfg.points; i++) {
@@ -149,6 +152,7 @@ int store_recall(int n)
             if (k >= CAL_LOAD) { q = p; uint8_t *t = (uint8_t *)&b; for (unsigned j = 0; j < sizeof b; j++) t[j] = q[j]; p += sizeof b; }
             cal_std_put(k, i, a, b);
         }
+    if (has_t) cal_temp_set(tmv);
     if ((have & 15) == 15 && cal_solve() == 0) cal_on = on;
     ui_redraw_full();
     return 0;

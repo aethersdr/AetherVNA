@@ -90,6 +90,15 @@ void cal_apply(int i, cpx *s11, cpx *s21);
 int  cal_std_get(int which, int i, cpx *s11, cpx *s21);   /* raw standard as measured */
 int  cal_std_put(int which, int i, cpx s11, cpx s21);     /* load one (for the current sweep) */
 int  cal_terms_get(int i, cpx t[6]);                      /* e00 e11 de e30 e22 e10e32 */
+/* temperature (the MCU sensor, lagged 240 s): calibrations record it, the screen warns when it moves */
+void  temp_tick(void);                   /* a reading every 2 s, between sweep points */
+float temp_lagged_mv(void);
+extern float temp_warn_mv;
+extern uint8_t temp_comp;                /* 1: correct raw S11 at 0.1-2 MHz for the change (unvalidated; off by default) */
+int   cal_temp_get(float *mv);           /* -1: this calibration's temperature is unknown */
+void  cal_temp_set(float mv);
+int   cal_temp_delta(float *d);
+int   cal_temp_moved(void);              /* beyond temp_warn_mv since calibrating */
 
 /* complex helpers */
 static inline cpx c_mk(float r, float i) { cpx z = { r, i }; return z; }

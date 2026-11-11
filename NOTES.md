@@ -605,7 +605,8 @@ of high-band sweeps (3-6 GHz) to warm the board, 25 min cooling.
 The sensor moved while the low band did not (after the reboot), and the
 low band kept moving after the sensor settled: the MCU sensor is not a
 proxy for what drives it (the analog front end's or the room's temperature).
-No correction is built on it. At 1 MHz the same run moved 0.0024 dB; at
+No correction is built on it (revised in stage 23: with a 240 s lag the
+sensor does track screen and room heat). At 1 MHz the same run moved 0.0024 dB; at
 2 MHz 0.004 dB. Rule: below 1.5 MHz expect +/-0.01 dB within about 20 min
 of a calibration with the high band unused and up to 0.025 dB over hours or
 after high-band use; recalibrate close to measurements that need better.
@@ -997,6 +998,67 @@ directivity is only 5.7 dB, so the correction magnifies any change in how
 a standard seats; the error falls as the directivity improves with
 frequency. Agent-driven tests now run with the screen off (bench driver).
 
+## Stage 23: low-band temperature: tracked with a lag; warning, gated correction (2026-11-11)
+
+Two heat cycles with a short on port 1, the screen as the heater, the host
+sweeping 50 kHz-2 MHz (40 points, avg 8) every 30 s with the screen off
+between sweeps (bench driver), logging the MCU sensor and the touch
+controller's TEMP0/TEMP1 alongside the raw S11:
+
+| Run | Cycle | Room | Raw short, largest move |
+|---|---|---|---|
+| 1 (fit) | screen off 45 min, on 25 min | 70.0 F at the start, 68.5 F at the end | 0.137 dB and 1.1 deg at 0.3 MHz; 0.088 dB at 0.5 MHz; 0.014 dB at 1 MHz |
+| 2 (check) | on 15 min, off 25 min, on 15 min | not read at the end | 0.083 dB and 0.59 deg at 0.3 MHz (RMS 0.053 dB) |
+
+The low band follows the sensors with a delay. Each sensor was put through
+a first-order lag (0-1800 s tried) and fitted, per frequency, on run 1; at
+0.3 MHz the best lags were 240 s (TEMP0/TEMP1, 0.0035 dB RMS left) and 480 s
+(MCU, 0.0055 dB). Run 1's coefficients at a 240 s lag, unchanged, were then
+scored on run 2 (RMS of the corrected drift):
+
+| f | Uncorrected | MCU sensor | TEMP1 |
+|---|---|---|---|
+| 0.15 MHz | 0.065 dB | 0.0050 dB (max 0.012) | |
+| 0.3 MHz | 0.053 dB | 0.0037 dB (max 0.009); phase 0.027 deg | 0.014 dB; phase 0.073 deg |
+| 0.5 MHz | 0.037 dB | 0.0028 dB | 0.011 dB |
+| 1 MHz | 0.0054 dB | 0.0012 dB | 0.0025 dB |
+| 1.95 MHz | 0.0064 dB | 0.0015 dB | |
+
+The touch controller's readings fitted run 1 best and failed on run 2 (they
+lose track when the screen goes off); the MCU sensor held through all three
+parts of run 2. Not correctable: 50 kHz phase (7.6 deg in run 2, no sensor
+predicts it). This revises stage 11, where the sensor was compared without
+a lag and with the high band as the heater: a lag explains "kept moving
+after the sensor settled", but high-band heat (local to the MAX2871s) has
+not been checked against this model, so its own warning stays.
+
+Built:
+- the firmware keeps the MCU reading lagged 240 s (a reading every 2 s,
+  between sweep points); `temp` prints it;
+- a calibration records the lagged reading at each standard (the mean is
+  the calibration's), kept by save/recall in flash slots (byte 3 of the
+  calibration header, 1 = a float follows; older slots read as unknown) and
+  in SD .CAL files (an optional 4-byte tail; older files read as unknown);
+  `cal temp [mV]` shows it or sets it for a calibration restored over the
+  console;
+- a warning, on screen ("CAL on TEMP MOVED") and in `cal` / `temp`, when the
+  lagged reading has moved more than 4 mV (`temp warn`) from the
+  calibration's: about 0.02 dB and 0.12 deg at 0.1-0.3 MHz;
+- a correction of raw S11, 0.1-2 MHz, from run 1's coefficients
+  (0.0054 dB/mV and 0.026 deg/mV at 0.1 MHz, 0.0005 dB/mV at 1 MHz), **off
+  by default** (`temp comp 1`, "TC" on screen). Before it can be turned on:
+  an open and a load (directivity) and S21 checked the same way, and a heat
+  run in a different room temperature; only reflection with a short and
+  68.5-70 F were seen.
+- the bench's host calibration (calibrate.py) records the same reading per
+  standard and warns when a calibration is used more than 4 mV away.
+
+The new code moved `capture3` by 0x4FC: a capture now takes (6600 - 1) x 82
+cycles plus 223 (63-66 before), identical on every capture, with the inline
+and separate DFTs agreeing to 1e-6: a fixed overhead, no missed
+conversions. Not checked on the unit: the SD calibration file's new tail
+(saving needs the menu, which needs the screen on).
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -1031,7 +1093,7 @@ recording (2026-11-10).
   Next: saved settings and calibration in flash, touch input, an open/short
   level check above 1 GHz, the near-integer MAX2871 states, the low-band
   drift (characterised: not tracked by the MCU sensor; recalibrate near the
-  measurement below 1.5 MHz).
+  measurement below 1.5 MHz; revised in stage 23: tracked with a 240 s lag).
 - Stage 12: stock-style UI with Smith chart, menus, touch and jog, console
   mirror and screen capture; menu tree after the stock map, phase 1.
 - Stage 13: microSD on SPI1 with chip select PB9; FAT32 read and write
@@ -1042,3 +1104,6 @@ recording (2026-11-10).
 - Stage 16: MEASURE modes (L/C match, cable, shunt LC, series L, crystal).
 - Stage 17: stored traces A-D. Stage 18: TRANSFORM (time domain).
   Next: brightness, TX power, cal kit, expert settings. Next: touch map, settings and calibration in flash.
+- Stages 19-22: TX power, cal kit, expert settings, USB hot replug.
+- Stage 23: low-band drift tracked by the MCU sensor with a 240 s lag;
+  calibrations record it and warn; a correction is built, off until validated.

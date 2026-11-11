@@ -67,7 +67,9 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 19: TX POWER (stimulus level), measured: only level 0 is clean below 100 MHz | Done |
 | 20: CAL KIT: open/short/load/thru standards model, checked against a synthetic error box | Done |
 | 21: expert settings: band split, TCXO trim, VBAT offset, remember state, raw samples, RTC date and time, firmware dump; brightness (DAC on the backlight control) | Done |
-| Later: open/short level check above 1 GHz, the near-integer MAX2871 states, low-band drift | Planned |
+| 22: USB hot replug (polled USB served during enumeration, USB clock from the TCXO, a USB watchdog) | Done |
+| 23: low-band temperature drift: tracked by the MCU sensor with a 240 s lag; calibrations record it, the screen warns when it moves; a 0.1-2 MHz correction, off until validated | Done (warning); correction gated |
+| Later: open/short level check above 1 GHz, the near-integer MAX2871 states, validating the temperature correction | Planned |
 
 ## Build and flash
 
@@ -96,6 +98,7 @@ commands follow NanoVNA-D so existing tools can drive it:
 | `flags` | per point: tuned frequency, reference level, ok/clip/lowref/range |
 | `gain [auto\|0..3]`, `avg [auto\|n]`, `retune [0\|1]`, `bracket [0\|1]`, `settle`, `tsettle`, `power [0-3]`, `split [Hz]`, `tcxo [Hz]`, `time [YYYYMMDDhhmmss]` | measurement and clock settings |
 | `info`, `version`, `vbat`, `temp`, `jog`, `touch` | identity, state, battery, MCU temperature sensor (mV), inputs |
+| `temp [comp 0\|1\|warn <mV>]`, `cal temp [mV]` | the sensor now and lagged 240 s, the calibration's reading, whether it moved; the gated correction; a restored calibration's temperature |
 | `trace [1-4 [on\|off\|s11\|s21\|<format>\|scale <v>\|ref <v>\|refpos <d>\|auto\|active]]` | the screen's traces; formats `logmag phase swr smith linear r x z` |
 | `marker [1-4 [on\|off\|active\|<index>\|minswr\|max\|min]]` | the screen's markers |
 | `ui [state\|tap <x> <y>\|jog l\|r\|L\|R\|rr\|redraw]` | menu state; taps and jog clicks/holds as if by hand |

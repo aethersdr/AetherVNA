@@ -1614,6 +1614,8 @@ static void draw_status(void)
     p = put_freq(p, sweep_cfg.start); p = put_s(p, " - "); p = put_freq(p, sweep_cfg.stop);
     p = put_s(p, "  "); p = put_u(p, sweep_cfg.points, 1); p = put_s(p, " pt  CAL ");
     p = put_s(p, cal_on && cal_valid() ? "on" : cal_have ? "partial" : "none");
+    if (cal_on && cal_temp_moved()) p = put_s(p, " TEMP MOVED");
+    if (cal_on && temp_comp) p = put_s(p, " TC");
     if (edelay != 0) { p = put_s(p, "  ED "); p = put_eng(p, edelay, "s"); }
     if (port_z != 50) { p = put_s(p, "  Z0 "); p = put_fx(p, port_z, 1); }
     if (td_on) p = put_s(p, td_mode == TD_IMPULSE ? "  TD impulse" : td_mode == TD_STEP ? "  TD step" : "  TD band pass");

@@ -291,6 +291,80 @@ float mcu_sensor_mv(void)
     ADC_SPT1 = spt;
     return s * (3300.0f / 4096.0f / 64.0f);
 }
+/* ---------- temperature: the low band drifts with the board's temperature ----------
+ * Two heat cycles on 2026-11-11 (screen off and on, a short on port 1,
+ * 50 kHz-2 MHz) showed the raw S11 moving up to 0.14 dB and 1.1 degrees
+ * near 0.3 MHz. The MCU sensor, delayed by a 240 s first-order lag, tracked
+ * it: coefficients fitted on the first cycle cut the second cycle's drift
+ * about tenfold at 0.15-0.35 MHz. A calibration records the lagged reading
+ * it was made at; when the reading has since moved more than temp_warn_mv
+ * the screen and `cal` say so (recalibrate). The correction below, from the
+ * first cycle, is off by default (`temp comp 1`): it covers 0.1-2 MHz
+ * reflection only, is unvalidated for loads and S21, and saw 68.5-70 F
+ * rooms only. Table: per mV of lagged-sensor change, dB and degrees of raw
+ * S11, at 0.10, 0.15 ... 2.00 MHz. */
+#define TC_F0 100000.0f
+#define TC_DF 50000.0f
+#define TC_N  39
+static const float tc_db[TC_N] = {
+    0.005353f, 0.005462f, 0.005202f, 0.004775f, 0.004282f, 0.003843f, 0.003575f, 0.003320f,
+    0.003022f, 0.002633f, 0.002265f, 0.001841f, 0.001484f, 0.001162f, 0.000934f, 0.000732f,
+    0.000613f, 0.000538f, 0.000484f, 0.000465f, 0.000442f, 0.000440f, 0.000474f, 0.000476f,
+    0.000492f, 0.000497f, 0.000530f, 0.000584f, 0.000622f, 0.000634f, 0.000624f, 0.000648f,
+    0.000676f, 0.000693f, 0.000690f, 0.000668f, 0.000640f, 0.000627f, 0.000612f };
+static const float tc_deg[TC_N] = {
+    0.02576f, 0.02873f, 0.03005f, 0.03103f, 0.03090f, 0.03066f, 0.03024f, 0.03032f,
+    0.03073f, 0.03101f, 0.03070f, 0.03017f, 0.02900f, 0.02745f, 0.02579f, 0.02407f,
+    0.02235f, 0.02088f, 0.01947f, 0.01831f, 0.01739f, 0.01625f, 0.01550f, 0.01483f,
+    0.01426f, 0.01355f, 0.01306f, 0.01277f, 0.01262f, 0.01255f, 0.01240f, 0.01208f,
+    0.01203f, 0.01219f, 0.01230f, 0.01236f, 0.01236f, 0.01238f, 0.01235f };
+#define TEMP_TAU_S  240.0f
+#define TEMP_EVERY  2000u                    /* ms between readings */
+static float temp_lag_mv; static uint8_t temp_have;
+static uint32_t temp_last_ms;
+float temp_warn_mv = 4.0f;                   /* about 0.02 dB and 0.12 degrees at 0.1-0.3 MHz */
+uint8_t temp_comp;                           /* 0 until the correction is validated */
+static float std_temp[CAL_ISOLN + 1]; static uint8_t std_temp_bits;   /* lagged reading at each standard */
+static float cal_temp_fixed; static uint8_t cal_temp_restored;        /* a restored calibration's, if it had one */
+/* exp(-x) to 2nd order for |x| < 0.1 */
+static float lag_alpha(float dt_s)             /* 1 - e^(-dt/tau): e^(-x/8) by series, cubed by squaring */
+{
+    float x = dt_s / TEMP_TAU_S; if (x > 20) return 1.0f;
+    float y = x / 8, e = 1 - y + y * y / 2 - y * y * y / 6 + y * y * y * y / 24;
+    e *= e; e *= e; e *= e;
+    return 1.0f - e;
+}
+void temp_tick(void)
+{
+    uint32_t now = ms_ticks;
+    if (temp_have && now - temp_last_ms < TEMP_EVERY) return;
+    float v = mcu_sensor_mv();
+    if (!temp_have) { temp_lag_mv = v; temp_have = 1; }
+    else temp_lag_mv += lag_alpha((now - temp_last_ms) * 0.001f) * (v - temp_lag_mv);
+    temp_last_ms = now;
+}
+float temp_lagged_mv(void) { temp_tick(); return temp_lag_mv; }
+int cal_temp_get(float *mv)                     /* the mean over the standards in the calibration */
+{
+    if (cal_temp_restored) { *mv = cal_temp_fixed; return 0; }
+    float s = 0; int n = 0;
+    for (int k = 0; k <= CAL_ISOLN; k++) if (cal_have & std_temp_bits & (1u << k)) { s += std_temp[k]; n++; }
+    if (!n || (cal_have & ~std_temp_bits)) return -1;   /* a standard without one: unknown */
+    *mv = s / n; return 0;
+}
+void cal_temp_set(float mv) { cal_temp_fixed = mv; cal_temp_restored = 1; }
+/* lagged reading now minus the calibration's; -1 if the calibration has no temperature */
+int cal_temp_delta(float *d) { float c; if (cal_temp_get(&c)) return -1; *d = temp_lag_mv - c; return 0; }
+int cal_temp_moved(void) { float d; return cal_valid() && cal_temp_delta(&d) == 0 && (d > temp_warn_mv || d < -temp_warn_mv); }
+static cpx temp_correct(float f, cpx g)
+{
+    float d; if (!temp_comp || cal_temp_delta(&d) || f < TC_F0 || f > TC_F0 + TC_DF * (TC_N - 1)) return g;
+    float x = (f - TC_F0) / TC_DF; int k = (int)x; if (k >= TC_N - 1) k = TC_N - 2; float u = x - k;
+    float db = tc_db[k] + u * (tc_db[k + 1] - tc_db[k]), deg = tc_deg[k] + u * (tc_deg[k + 1] - tc_deg[k]);
+    cpx z = c_mk(-db * d * (2.30258509f / 20), -deg * d * (3.14159265f / 180));   /* undo the drift: g * e^z */
+    cpx z2 = c_mul(z, z), e = c_add(c_add(c_mk(1, 0), z), c_add(c_mk(z2.re / 2, z2.im / 2), c_mk(c_mul(z2, z).re / 6, c_mul(z2, z).im / 6)));
+    return c_mul(g, e);
+}
 /* One conversion of another channel between captures (capture3 sets channel 0 again). */
 uint16_t adc_single(int ch)
 {
@@ -447,7 +521,7 @@ int cal_valid(void)
 {
     return terms_ok && same_cfg(&cal_cfg, &sweep_cfg);
 }
-void cal_reset(void) { cal_have = 0; terms_ok = 0; cal_on = 0; }
+void cal_reset(void) { cal_have = 0; terms_ok = 0; cal_on = 0; std_temp_bits = 0; cal_temp_restored = 0; }
 int cal_range(uint64_t *start, uint64_t *stop, int *points)
 {
     if (!cal_have) return -1;
@@ -458,8 +532,11 @@ int cal_measure(int which)
 {
     if (which < 0 || which > CAL_ISOLN) return -1;
     if (cal_have && !same_cfg(&cal_cfg, &sweep_cfg)) cal_have = 0;
+    if (!cal_have) std_temp_bits = 0;
+    cal_temp_restored = 0;
     cal_cfg = sweep_cfg; terms_ok = 0;
     if (sweep_once() < 0) return -2;
+    std_temp[which] = temp_lagged_mv(); std_temp_bits |= 1u << which;
     for (int i = 0; i < sweep_cfg.points; i++) {
         switch (which) {
         case CAL_OPEN:  std_open[i] = pts[i].s11; break;
@@ -551,6 +628,10 @@ uint8_t cal_enhanced = 1;                       /* 0: S21 by response and isolat
 void cal_apply(int i, cpx *s11, cpx *s21)
 {
     const terms_t *t = &terms[i];
+    if (temp_comp) {
+        float f = cal_cfg.points > 1 ? (float)cal_cfg.start + (float)(cal_cfg.stop - cal_cfg.start) * i / (cal_cfg.points - 1) : (float)cal_cfg.start;
+        *s11 = temp_correct(f, *s11);
+    }
     cpx g = corr11(*s11, t);
     *s21 = c_div(c_sub(*s21, t->e30), t->e10e32);
     if (cal_enhanced) *s21 = c_mul(*s21, c_sub(c_mk(1, 0), c_mul(t->e11, g)));
@@ -575,6 +656,8 @@ int cal_std_put(int which, int i, cpx s11, cpx s21)
 {
     if (which < 0 || which > CAL_ISOLN || i < 0 || i >= sweep_cfg.points) return -1;
     if (cal_have && !same_cfg(&cal_cfg, &sweep_cfg)) cal_have = 0;
+    if (!cal_have) std_temp_bits = 0;
+    std_temp_bits &= ~(1u << which); cal_temp_restored = 0;   /* restored: unknown until cal_temp_set */
     cal_cfg = sweep_cfg; terms_ok = 0;
     switch (which) {
     case CAL_ISOLN: std_iso[i] = s21; break;

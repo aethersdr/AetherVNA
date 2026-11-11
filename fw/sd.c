@@ -591,6 +591,7 @@ int sd_save_cal(int autoname, char *name)
             fw_bytes(&f, &a, sizeof a); fw_bytes(&f, &b, sizeof b);
             if ((i & 31) == 0) service();
         }
+    float tmv; if (cal_temp_get(&tmv) == 0) fw_bytes(&f, &tmv, sizeof tmv);   /* optional tail: the calibration's temperature, mV */
     return fw_close(&f, name);
 }
 int sd_load_cal(const char *name)
@@ -612,6 +613,7 @@ int sd_load_cal(const char *name)
             cpx a, b; if (fr_bytes(&r, &a, sizeof a) || fr_bytes(&r, &b, sizeof b)) return -3;
             cal_std_put(k, i, a, b);
         }
+    float tmv; if (fr_bytes(&r, &tmv, sizeof tmv) == 0) cal_temp_set(tmv);   /* files without it: unknown */
     if ((have & 15) == 15 && cal_solve() == 0) cal_on = on;
     return 0;
 }

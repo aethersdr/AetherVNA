@@ -58,6 +58,7 @@ int  sweep_once(void);                   /* returns points measured */
 int  ms_write(uint8_t reg, const uint8_t *v, int n);
 int  ms_read(uint8_t reg, uint8_t *v, int n);
 void mx_write(uint8_t le, uint32_t w);
+float mcu_sensor_mv(void);
 int  capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip, cpx out[4]);
 void dft3(const uint16_t *buf, int settle, cpx out[4]);
 extern uint16_t adc_buf[];

@@ -267,6 +267,26 @@ static void adc_init(void)
     adc_up = 1;
 }
 void vna_adc_init(void) { adc_init(); }
+
+/* The MCU's internal temperature sensor, ADC1 channel 16, as a proxy for the
+ * board's temperature (the low band drifts with it). Enabled only for the
+ * reading so captures run as before, sampled for 239.5 ADC cycles, 64
+ * conversions averaged. Returned as the sensor's voltage in mV for VDDA =
+ * 3.3 V: its changes track temperature at a few mV per degree; the
+ * datasheet's absolute figures were not to hand, so no degrees are claimed. */
+float mcu_sensor_mv(void)
+{
+    if (!adc_up) adc_init();
+    uint32_t spt = ADC_SPT1;
+    ADC_SPT1 = (spt & ~(7u << 18)) | (7u << 18);
+    ADC_CTRL2 |= 1u << 23;
+    delay_us(100);
+    uint32_t s = 0;
+    for (int i = 0; i < 64; i++) s += adc_single(16);
+    ADC_CTRL2 &= ~(1u << 23);
+    ADC_SPT1 = spt;
+    return s * (3300.0f / 4096.0f / 64.0f);
+}
 /* One conversion of another channel between captures (capture3 sets channel 0 again). */
 uint16_t adc_single(int ch)
 {

@@ -101,6 +101,7 @@ static void cmd_info(void)
     else if (!hb_used) con_puts("not used since power-on");
     else { con_puts("off for "); con_udec((ms_ticks - hb_last_ms) / 1000); con_puts(" s"); }
     nl();
+    con_puts("MCU temperature sensor: "); con_float(mcu_sensor_mv(), 1); con_puts(" mV\r\n");
 }
 
 static void cmd_cal(void)
@@ -170,7 +171,7 @@ static void cmd_help(void)
              "  frequencies | cal [open|short|load|thru|done|on|off|reset] | cal get <std|terms> |\r\n"
              "  cal put <std> <i> <s11re> <s11im> <s21re> <s21im> | pause | resume | flags |\r\n"
              "  settle [samples] | tsettle [us] | avg [auto|n] | gain [auto|0..3] | bracket [0|1] | retune [0|1]\r\n"
-             "instrument: version | info | vbat | clk [tcxo] | backlight [0|1] | touch |\r\n"
+             "instrument: version | info | vbat | temp | clk [tcxo] | backlight [0|1] | touch |\r\n"
              "  lcd [init|test|ui [nosweep]|off|madctl <hex>|inv 0|1|marker <i>|status] |\r\n"
              "  bootloader | reset\r\n"
              "diagnostics: raw <freq> | tune <freq> | ms r <reg> <n> | ms w <reg> <v>... | mx <le pin> <hex> | pin <code> <0|1|r>\r\n"
@@ -256,6 +257,9 @@ void console_line(char *line)
         con_puts("ladder "); con_udec(sum / 16); con_puts(" counts ("); con_udec(sum / 16 * 3300 / 4095); con_puts(" mV) digital-high ");
         con_udec(ones); con_puts("/1000 right "); con_puts(pin_read(P_JOG_RIGHT) ? "up" : "down");
         con_puts(" pressed "); con_udec(jog_pressed()); nl();
+    }
+    else if (streq(c, "temp")) {
+        con_float(mcu_sensor_mv(), 2); con_puts(" mV (MCU temperature sensor)\r\n");
     }
     else if (streq(c, "vbat")) { con_udec((uint32_t)(vbat_volts() * 1000 + 0.5f)); con_puts(" mV\r\n"); }
     else if (streq(c, "clk")) {

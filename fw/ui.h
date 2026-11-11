@@ -16,6 +16,7 @@ int  ui_cfg_get(uint8_t *b);                 /* returns its length */
 void ui_cfg_put(const uint8_t *b, int n);
 void ui_redraw_full(void);
 void ui_render_screen(void);
+void ui_td_invalidate(void);
 int  sd_save_screen(int autoname, char *name);
 /* store.c */
 int  store_valid(int n);

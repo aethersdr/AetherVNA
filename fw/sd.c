@@ -734,6 +734,7 @@ int sd_save_screen(int autoname, char *name)
         service();
     }
     excl_lo = excl_hi = 0;
+    ui_td_invalidate();                              /* the bands overwrote the time-domain results */
     if (scr_err) return -6;
     return fw_close(&f, name);
 }

@@ -184,6 +184,7 @@ static void cmd_help(void)
              "  settle [samples] | tsettle [us] | avg [auto|n] | gain [auto|0..3] | bracket [0|1] | retune [0|1]\r\n"
              "display: trace [1-4 [...]] (trace 1 x for the formats) | marker [1-8 [...]|delta|tracking|jogstep] |\r\n"
              "  display [edelay|s21offset|portz|gridvalues|dotgrid|flip] | measure [off|lc|cable|shuntlc|seriesl|xtal|rl <ohm>|vf <v>] |\r\n"
+             "  transform [on|off|impulse|step|bandpass|window min|normal|max] |\r\n"
              "  ui [state|tap <x> <y>|jog l|r|L|R|rr|menu <name>|select <row>|redraw] | touch [cal|map [ax bx ay by swap]] |\r\n"
              "  lcd [init|test|ui [nosweep]|off|capture|madctl <hex>|inv 0|1|marker <i>|status] | backlight [0|1]\r\n"
              "instrument: version | info | vbat | temp | clk [tcxo] | sd [status|probe|cs <pin>|init|mount|ls|verify|write] |\r\n"
@@ -310,7 +311,7 @@ void console_line(char *line)
         if (argv_[2][0] == 'r') pin_input((uint8_t)pp, 0); else pin_out((uint8_t)pp, argv_[2][0] == '1');
         con_puts("ok\r\n");
     }
-    else if (streq(c, "lcd") || streq(c, "backlight") || streq(c, "touch") || streq(c, "trace") || streq(c, "marker") || streq(c, "display") || streq(c, "ui") || streq(c, "measure") || streq(c, "point")) ui_command(argc_, argv_);
+    else if (streq(c, "lcd") || streq(c, "backlight") || streq(c, "touch") || streq(c, "trace") || streq(c, "marker") || streq(c, "display") || streq(c, "ui") || streq(c, "measure") || streq(c, "point") || streq(c, "transform")) ui_command(argc_, argv_);
     else if (streq(c, "sd")) sd_command(argc_, argv_);
     else if (streq(c, "save") || streq(c, "recall") || streq(c, "config")) store_command(argc_, argv_);
     else if (streq(c, "bootloader") || streq(c, "reset")) {

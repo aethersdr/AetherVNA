@@ -61,8 +61,9 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 13: microSD slot found (SPI1, chip select PB9); SPI-mode driver and FAT32 read/write checked on a test card | Done |
 | 14: save/recall slots 0-6 (settings, display, calibration) and config (touch map) in flash; slot 0 at power-on | Done |
 | 15: SD CARD menu: S1P/S2P Touchstone, BMP screenshots, calibration save and LOAD | Done |
-| 17: stored traces A-D (6.3 KB of RAM reclaimed for them) | Done |
 | 16: MEASURE modes: L/C match, cable, shunt LC, series L, crystal, checked against exact circuit models | Done |
+| 17: stored traces A-D (6.3 KB of RAM reclaimed for them) | Done |
+| 18: TRANSFORM: time domain (low-pass impulse/step, band pass, Kaiser windows, span), checked against an ideal line | Done |
 | Later: the remaining stock menus (NOTES.md, stage 12), open/short level check above 1 GHz | Planned |
 
 ## Build and flash
@@ -98,6 +99,7 @@ commands follow NanoVNA-D so existing tools can drive it:
 | `lcd [init\|test\|ui\|off\|capture\|madctl <hex>\|inv 0\|1\|marker <i>\|status]`, `backlight` | display; `capture` streams the redrawn screen (`host/screenshot.py` makes a PNG) |
 | `save <0-6>`, `recall <0-6>`, `config [save\|erase]` | settings and calibrations in flash (slot 0 loads at power-on); `config erase` before restoring stock |
 | `measure [off\|lc\|cable\|shuntlc\|seriesl\|xtal]`, `measure rl\|vf <v>` | MEASURE modes: L/C match, cable, shunt LC, series L, crystal (results printed and drawn on screen) |
+| `transform [on\|off\|impulse\|step\|bandpass\|window min\|normal\|max\|span <s>]` | time domain |
 | `sd status\|probe\|cs\|init\|mount\|ls\|verify\|write`, `sd save s1p\|s2p\|cal\|bmp [fixed]`, `sd load\|cat\|hex\|rm <file>` | microSD (SPI1, chip select PB9), FAT32, Touchstone and calibration files; `fat`, `fatrange`, `patsec`, `unlink`, `fsinfo` for repair |
 | `raw <freq>`, `tune`, `ms`, `mx`, `pin`, `clk`, `point <i> <4 values>` | diagnostics (`point` writes a raw sweep point, paused: for testing) |
 | `bootloader`, `reset` | refused while the jog is pressed |

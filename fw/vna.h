@@ -62,7 +62,7 @@ float mcu_sensor_mv(void);
 int  capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip, cpx out[4]);
 void dft3(const uint16_t *buf, int settle, cpx out[4]);
 extern uint16_t adc_buf[];
-extern uint32_t capture_cycles;          /* of the last capture, first to last sample */
+extern uint32_t capture_cycles, capture_seq;          /* of the last capture, first to last sample */
 float vbat_volts(void);
 void vna_adc_init(void);
 uint16_t adc_single(int ch);              /* e.g. 9 = PB1, the jog ladder */

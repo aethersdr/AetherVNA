@@ -162,7 +162,7 @@ int text(int x, int y, const char *s, uint16_t fg, uint16_t bg, int sc)
 {
     while (*s) {
         int w = 0, n = 0;                            /* as many characters as fit the buffer */
-        while (s[n] && (w + (glyph_w(s[n]) + 1) * sc) * 8 * sc <= BUF_PX) { w += (glyph_w(s[n]) + 1) * sc; n++; }
+        while (s[n] && (w + (glyph_w(s[n]) + 1) * sc) * 8 * sc <= BUF_PX / 2) { w += (glyph_w(s[n]) + 1) * sc; n++; }
         if (x + w > W) w = W - x;
         if (w <= 0) return x;
         int hh = 8 * sc, cx = 0;
@@ -277,7 +277,7 @@ int ftext(int x, int y, const char *s, const font_t *f, uint16_t fg, uint16_t bg
     int fr = fg >> 11, fgg = (fg >> 5) & 63, fb = fg & 31, br = bg >> 11, bgg = (bg >> 5) & 63, bb = bg & 31;
     for (int a = 0; a < 16; a++)
         pal[a] = (uint16_t)((((fr * a + br * (15 - a) + 7) / 15) << 11) | (((fgg * a + bgg * (15 - a) + 7) / 15) << 5) | ((fb * a + bb * (15 - a) + 7) / 15));
-    int h = f->h, maxw = BUF_PX / h;
+    int h = f->h, maxw = (BUF_PX / 2) / h;              /* the lower half of the buffer: the time domain keeps data above */
     if (xmax > W) xmax = W;
     while (*s && x < 0) { x += f->w[fglyph(f, *s)]; s++; }   /* clip on the left by whole glyphs */
     while (*s) {

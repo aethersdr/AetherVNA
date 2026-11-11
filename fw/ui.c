@@ -44,6 +44,7 @@
 #define MROWS 10
 #define RY0 (GY1 + 1)                                /* readout lines */
 #define RDY 12
+#define STRIP 16                                     /* graph columns per strip: 8 KB of adc_buf, the rest holds the time domain */
 
 #define C_BG    0x0000
 #define C_GRID  0x31A6
@@ -148,6 +149,7 @@ enum { MS_OFF, MS_LC, MS_CABLE, MS_SHUNTLC, MS_SERIESL, MS_XTAL, MS_N };
 static uint8_t meas_mode;
 static float meas_rl = 50, meas_vf = 0.66f;
 static const char *const meas_name[MS_N] = { "off", "lc", "cable", "shuntlc", "seriesl", "xtal" };
+#define C_LIGHT_ 299792458.0f
 
 static uint8_t grid_values = 1, dot_grid, flipped;
 
@@ -224,8 +226,13 @@ static float group_delay(int i, int ch)
     float df = (float)(point_freq(b) - point_freq(a));
     return df > 0 ? -dphi / (2 * PI_F * df) : 0;
 }
+static uint8_t td_on;
 static float fmt_val(int fmt, int ch, int i)
 {
+    if (td_on) {                                     /* time domain: the response at this time */
+        cpx v = ((cpx *)(((uint8_t *)adc_buf) + 2 * (BUF_PX / 2)))[ch * POINTS_MAX + i];
+        switch (fmt) { case F_LOGMAG: return c_db(v); case F_PHASE: return c_deg(v); case F_REAL: return v.re; case F_IMAG: return v.im; default: return c_abs(v); }
+    }
     cpx g = point_g(i, ch);
     float w = 2 * PI_F * (float)point_freq(i);
     cpx z;
@@ -260,7 +267,95 @@ static float fmt_val(int fmt, int ch, int i)
     }
     return 0;
 }
-static float trace_val(int t, int i) { return fmt_val(tr[t].fmt, tr[t].ch, i); }
+
+/* ---------- TRANSFORM: time domain ----------
+ * Evaluated directly at the displayed times (no FFT: no RAM for one), from
+ * the calibrated, windowed spectrum. Low pass treats point k as harmonic k+1
+ * of the step (start should equal the step) with DC extrapolated, and gives
+ * a real impulse response, or its running sum as the step response, over
+ * the first half period (t = i / (2 n df)); band pass gives the complex
+ * response over a whole period (t = i / (n df)). Results live in adc_buf
+ * above the 8 KB the drawing uses, keyed on everything they depend on, and
+ * are recomputed after any capture. */
+enum { TD_IMPULSE, TD_STEP, TD_BANDPASS };
+static uint8_t td_mode, td_win = 1;
+static float td_span;                                /* displayed span in s; 0 = the whole unambiguous range */           /* window: 0 minimum, 1 normal, 2 maximum (Kaiser beta 0, 6, 13) */
+static uint32_t td_gen;                              /* bumped by anything that changes the data */
+#define TD_OUT ((cpx *)(((uint8_t *)adc_buf) + 2 * (BUF_PX / 2)))   /* [2][POINTS_MAX], above the drawing's half */
+#define TD_X   ((cpx *)adc_buf)                                      /* scratch spectrum, while computing only */
+typedef struct { uint32_t seq, swc, gen, start_lo, stop_lo, n; uint8_t mode, win, cal; float ed, so, pz, span; } td_key_t;
+static td_key_t td_key; static uint8_t td_ok, td_drawing;
+static float bessel_i0(float x)
+{
+    float s = 1, t = 1, q = x * x / 4;
+    for (int k = 1; k < 40; k++) { t *= q / ((float)k * k); s += t; if (t < s * 1e-8f) break; }
+    return s;
+}
+static float kaiser(float u, float beta)             /* u in -1..1 */
+{
+    if (beta <= 0) return 1;
+    float a = 1 - u * u; if (a < 0) a = 0;
+    return bessel_i0(beta * fsqrt(a)) / bessel_i0(beta);
+}
+static float td_time(int i);
+static void td_compute(int ch)
+{
+    int n = sweep_cfg.points; cpx *X = TD_X, *out = TD_OUT + ch * POINTS_MAX;
+    static const float betas[3] = { 0, 6, 13 }; float beta = betas[td_win];
+    float df = (float)(sweep_cfg.stop - sweep_cfg.start) / (n - 1);
+    if (td_mode == TD_BANDPASS) {
+        float sw = 0;
+        for (int k = 0; k < n; k++) { float w = kaiser(n > 1 ? 2.0f * k / (n - 1) - 1 : 0, beta); cpx g = point_g(k, ch); X[k] = c_mk(w * g.re, w * g.im); sw += w; }
+        for (int i = 0; i < n; i++) {
+            float sn, cs; sincos_f(2 * PI_F * df * td_time(i), &sn, &cs);
+            cpx z = c_mk(1, 0), r = c_mk(cs, sn), acc = c_mk(0, 0);
+            for (int k = 0; k < n; k++) { acc = c_add(acc, c_mul(X[k], z)); z = c_mul(z, r); }
+            out[i] = c_mk(acc.re / sw, acc.im / sw);
+            if ((i & 15) == 0) service();
+        }
+        return;
+    }
+    float wsum = 1;                                  /* DC weight 1, each harmonic counted twice (both sides) */
+    for (int k = 0; k < n; k++) { float w = kaiser((k + 1.0f) / (n + 1), beta); cpx g = point_g(k, ch); X[k] = c_mk(w * g.re, w * g.im); wsum += 2 * w; }
+    cpx g0 = point_g(0, ch), g1 = point_g(1, ch);
+    float x0 = g0.re - (g1.re - g0.re) * ((float)sweep_cfg.start / df);   /* DC, extrapolated */
+    float run = 0;
+    for (int i = 0; i < n; i++) {
+        float sn, cs; sincos_f(2 * PI_F * df * td_time(i), &sn, &cs);
+        cpx z = c_mk(1, 0), r = c_mk(cs, sn); float acc = x0;
+        for (int k = 0; k < n; k++) { z = c_mul(z, r); acc += 2 * (X[k].re * z.re - X[k].im * z.im); }
+        run += acc / (2 * n + 1);                    /* the step settles at the DC value */
+        out[i] = c_mk(td_mode == TD_STEP ? run : acc / wsum, 0);   /* the impulse peaks at |G| for one reflection */
+        if ((i & 15) == 0) service();
+    }
+}
+static void td_prepare(void)
+{
+    if (!td_on || sweep_cfg.points < 2) return;
+    td_key_t k;                                      /* zeroed first: the struct has padding, compared byte by byte */
+    { uint8_t *z = (uint8_t *)&k; for (unsigned j = 0; j < sizeof k; j++) z[j] = 0; }
+    k.seq = capture_seq; k.swc = sweep_count; k.gen = td_gen; k.start_lo = (uint32_t)sweep_cfg.start; k.stop_lo = (uint32_t)sweep_cfg.stop;
+    k.n = sweep_cfg.points; k.mode = td_mode; k.win = td_win; k.cal = (uint8_t)(cal_on && cal_valid());
+    k.ed = edelay; k.so = s21_offset; k.pz = port_z; k.span = td_span;
+    const uint8_t *a = (const uint8_t *)&k, *b = (const uint8_t *)&td_key; int same = td_ok;
+    for (unsigned j = 0; j < sizeof k && same; j++) if (a[j] != b[j]) same = 0;
+    if (same || td_drawing) return;                  /* never mid-frame: the scratch is the drawing's buffer */
+    td_on = 0;                                       /* point_g gives the frequency domain while computing */
+    td_compute(0); td_compute(1);
+    td_on = 1; td_key = k; td_ok = 1;
+}
+void ui_td_invalidate(void) { td_ok = 0; }
+static float td_range(void)                         /* unambiguous: a period (band pass) or half (low pass) */
+{
+    float df = (float)(sweep_cfg.stop - sweep_cfg.start) / (sweep_cfg.points > 1 ? sweep_cfg.points - 1 : 1);
+    return df > 0 ? (td_mode == TD_BANDPASS ? 1 : 0.5f) / df : 0;
+}
+static float td_time(int i)                          /* the displayed times: n points over the span */
+{
+    int n = sweep_cfg.points; float r = td_range(), sp = td_span > 0 && td_span < r ? td_span : r * (n - 1) / n;
+    return n > 1 ? sp * i / (n - 1) : 0;
+}
+static float trace_val(int t, int i) { td_prepare(); return fmt_val(tr[t].fmt, tr[t].ch, i); }
 static int fkind(int t) { return fmts[tr[t].fmt].kind; }
 static float y_of(int t, float v)                    /* graph row, 0 at top; may be off the graph */
 {
@@ -363,7 +458,7 @@ static void line_text(int x, int y, const char *s, uint16_t fg, int xmax)
 /* ---------- menus ---------- */
 enum {
     MN_HOME, MN_DISPLAY, MN_TRACE, MN_F11, MN_F11B, MN_F11C, MN_S11SM, MN_F21, MN_F21B, MN_S21SM, MN_SCALE, MN_AVG,
-    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_MEAS, MN_N
+    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_MEAS, MN_TD, MN_TDWIN, MN_N
 };
 enum {
     A_NONE, A_BACK,
@@ -384,12 +479,13 @@ enum {
     A_SAVE0, A_SAVEEND = A_SAVE0 + 7, A_RCL0 = A_SAVEEND, A_RCLEND = A_RCL0 + 7,
     A_SDS1P = A_RCLEND, A_SDS2P, A_SDSCREEN, A_SDSCAL, A_SDAUTO, A_FILE0, A_FILEEND = A_FILE0 + 8,
     A_MS0 = A_FILEEND, A_MSEND = A_MS0 + 6, A_MSRL = A_MSEND, A_MSVF,
+    A_TDON, A_TDIMP, A_TDSTEP, A_TDBP, A_TDW0, A_TDWEND = A_TDW0 + 3, A_TDSPAN = A_TDWEND,
     A_N
 };
 #define SUB(m) (A_SUB + (m))
 static uint8_t menus[MN_N][MROWS] = {                /* MN_SDLOAD is filled from the card */
     [MN_HOME]    = { SUB(MN_DISPLAY), SUB(MN_MARKER), SUB(MN_STIM), SUB(MN_CALMENU), SUB(MN_RECALL), SUB(MN_MEAS), SUB(MN_SD), SUB(MN_CONFIG), A_PAUSE },
-    [MN_DISPLAY] = { SUB(MN_TRACE), SUB(MN_F11), SUB(MN_F21), A_CHANNEL, SUB(MN_SCALE), A_TRANSFORM, SUB(MN_AVG), A_PORTZ, A_BACK },
+    [MN_DISPLAY] = { SUB(MN_TRACE), SUB(MN_F11), SUB(MN_F21), A_CHANNEL, SUB(MN_SCALE), SUB(MN_TD), SUB(MN_AVG), A_PORTZ, A_BACK },
     [MN_TRACE]   = { A_TRACE0, A_TRACE0 + 1, A_TRACE0 + 2, A_TRACE0 + 3, A_STORE0, A_STORE0 + 1, A_STORE0 + 2, A_STORE0 + 3, A_BACK },
     [MN_F11]     = { A_F0 + F_LOGMAG, A_F0 + F_PHASE, A_F0 + F_DELAY, SUB(MN_S11SM), A_F0 + F_SWR, A_F0 + F_R, A_F0 + F_X, A_F0 + F_Z, SUB(MN_F11B), A_BACK },
     [MN_F11B]    = { A_F0 + F_POLAR, A_F0 + F_LINEAR, A_F0 + F_REAL, A_F0 + F_IMAG, A_F0 + F_Q, A_F0 + F_G, A_F0 + F_B, A_F0 + F_Y, SUB(MN_F11C), A_BACK },
@@ -414,18 +510,20 @@ static uint8_t menus[MN_N][MROWS] = {                /* MN_SDLOAD is filled from
     [MN_SD]      = { A_SDS1P, A_SDS2P, A_SDSCREEN, A_SDSCAL, A_SDAUTO, SUB(MN_SDLOAD), A_BACK },
     [MN_SDLOAD]  = { A_FILE0, A_FILE0 + 1, A_FILE0 + 2, A_FILE0 + 3, A_FILE0 + 4, A_FILE0 + 5, A_FILE0 + 6, A_FILE0 + 7, A_BACK },
     [MN_MEAS]    = { A_MS0, A_MS0 + 1, A_MS0 + 2, A_MS0 + 3, A_MS0 + 4, A_MS0 + 5, A_MSRL, A_MSVF, A_BACK },
+    [MN_TD]      = { A_TDON, A_TDIMP, A_TDSTEP, A_TDBP, SUB(MN_TDWIN), A_MSVF, A_TDSPAN, A_BACK },
+    [MN_TDWIN]   = { A_TDW0, A_TDW0 + 1, A_TDW0 + 2, A_BACK },
 };
 static const uint8_t menu_parent[MN_N] = {
     [MN_HOME] = MN_HOME, [MN_DISPLAY] = MN_HOME, [MN_TRACE] = MN_DISPLAY, [MN_F11] = MN_DISPLAY, [MN_F11B] = MN_F11,
     [MN_F11C] = MN_F11B, [MN_S11SM] = MN_F11, [MN_F21] = MN_DISPLAY, [MN_F21B] = MN_F21, [MN_S21SM] = MN_F21,
     [MN_SCALE] = MN_DISPLAY, [MN_AVG] = MN_DISPLAY, [MN_MARKER] = MN_HOME, [MN_SELMK] = MN_MARKER, [MN_OPS] = MN_MARKER,
     [MN_STIM] = MN_HOME, [MN_CFGSW] = MN_STIM, [MN_CALMENU] = MN_HOME, [MN_CAL] = MN_CALMENU, [MN_CONFIG] = MN_HOME,
-    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD, [MN_MEAS] = MN_HOME,
+    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD, [MN_MEAS] = MN_HOME, [MN_TD] = MN_DISPLAY, [MN_TDWIN] = MN_TD,
 };
 static const char *const menu_name[MN_N] = {
     "home", "display", "trace", "format_s11", "format_s11_more", "format_s11_more2", "s11_smith", "format_s21",
     "format_s21_more", "s21_smith", "scale", "avg", "marker", "select_marker", "operations", "stimulus", "cfg_sweep",
-    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load", "measure" };
+    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load", "measure", "transform", "window" };
 static const uint8_t avg_vals[8] = { AVG_AUTO, 1, 2, 4, 8, 16, 32, 64 };
 static uint8_t menu_open, menu_id, menu_sel;
 static char sd_files[8][13]; static int sd_nfiles; static uint8_t sd_autoname = 1;
@@ -439,7 +537,7 @@ static int item_label(int a, char *b)
     static const char *const sub_n[MN_N] = {
         "HOME", "DISPLAY", "TRACE", "FORMAT S11", ">MORE", ">MORE", "SMITH", "FORMAT S21", ">MORE", "SMITH",
         "SCALE", "AVG", "MARKER", "SELECT MK", "OPERATIONS", "STIMULUS", "CFG SWEEP", "CALIBRATE", "CALIBRATE",
-        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD", "MEASURE" };
+        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD", "MEASURE", "TRANSFORM", "WINDOW" };
     char *p = b; *p = 0;
     if (a == A_BACK) { put_s(p, "< BACK"); return CK_NONE; }
     if (a >= A_SUB && a < A_SUB_END) { put_s(p, sub_n[a - A_SUB]); return CK_NONE; }
@@ -476,7 +574,16 @@ static int item_label(int a, char *b)
         static const char *const n[] = { "OFF", "L/C MATCH", "CABLE S11", "SHUNT LC", "SERIES L", "XTAL" };
         put_s(p, n[a - A_MS0]); return meas_mode == a - A_MS0 ? CK_ON : CK_OFF;
     }
+    if (a >= A_TDW0 && a < A_TDWEND) {
+        static const char *const n[] = { "MINIMUM", "NORMAL", "MAXIMUM" };
+        put_s(p, n[a - A_TDW0]); return td_win == a - A_TDW0 ? CK_ON : CK_OFF;
+    }
     switch (a) {
+    case A_TDON: put_s(p, "TD ON"); return td_on ? CK_ON : CK_OFF;
+    case A_TDIMP: put_s(p, "LP IMPULSE"); return td_mode == TD_IMPULSE ? CK_ON : CK_OFF;
+    case A_TDSTEP: put_s(p, "LP STEP"); return td_mode == TD_STEP ? CK_ON : CK_OFF;
+    case A_TDBP: put_s(p, "BANDPASS"); return td_mode == TD_BANDPASS ? CK_ON : CK_OFF;
+    case A_TDSPAN: put_s(p, "TD SPAN"); return CK_NONE;
     case A_MSRL: p = put_s(p, "Rl "); p = put_fx(p, meas_rl, meas_rl == (int)meas_rl ? 0 : 1); put_s(p, OHM); return CK_NONE;
     case A_MSVF: p = put_s(p, "VF "); put_fx(p, meas_vf, 2); return CK_NONE;
     case A_SDS1P: put_s(p, "SAVE S1P"); return CK_NONE;
@@ -506,7 +613,6 @@ static int item_label(int a, char *b)
     case A_GRIDVAL: put_s(p, "GRID VALS"); return grid_values ? CK_ON : CK_OFF;
     case A_DOTGRID: put_s(p, "DOT GRID"); return dot_grid ? CK_ON : CK_OFF;
     case A_AUTO: put_s(p, "AUTOSCALE"); return CK_NONE;
-    case A_TRANSFORM: put_s(p, "TRANSFORM"); return CK_DIM;
     case A_PORTZ: p = put_s(p, "PORT-Z "); p = put_fx(p, port_z, port_z == (int)port_z ? 0 : 1); put_s(p, OHM); return CK_NONE;
     case A_MKALLOFF: put_s(p, "ALL OFF"); return CK_NONE;
     case A_DELTA: put_s(p, "DELTA"); return mk_delta ? CK_ON : CK_OFF;
@@ -619,6 +725,7 @@ static const char *target_name(void)
     case A_S21OFF: return "S21 OFFSET (dB)";
     case A_MSRL: return "MEASURE: TERMINATION Rl (" OHM ")";
     case A_MSVF: return "VELOCITY FACTOR (0.1-1)";
+    case A_TDSPAN: return "TIME SPAN (s; n p " MU "; 0 = full range)";
     default: return "PORT IMPEDANCE (" OHM ")";
     }
 }
@@ -737,6 +844,7 @@ static void keypad_enter(float fmult, uint64_t hmult)
     case A_PORTZ: if ((ok = parse_num(kb, fmult, &v) && v > 0)) port_z = v; break;
     case A_MSRL: if ((ok = parse_num(kb, fmult, &v) && v > 0)) meas_rl = v; break;
     case A_MSVF: if ((ok = parse_num(kb, fmult, &v) && v >= 0.1f && v <= 1)) meas_vf = v; break;
+    case A_TDSPAN: if ((ok = parse_num(kb, fmult, &v) && v >= 0)) td_span = v; break;
     }
     if (!ok) say("not a valid value", 3000);
     grid_leave();
@@ -814,6 +922,15 @@ static void set_format(int f, int ch)
     t->fmt = f; t->ch = ch; t->on = 1;
     dirty |= D_FULL;
 }
+static void td_set(int on)
+{
+    td_on = (uint8_t)on; td_ok = 0; td_gen++;
+    if (on && td_mode != TD_BANDPASS && sweep_cfg.points > 1) {
+        uint64_t step = (sweep_cfg.stop - sweep_cfg.start) / (sweep_cfg.points - 1);
+        uint64_t d = sweep_cfg.start > step ? sweep_cfg.start - step : step - sweep_cfg.start;
+        if (d * 10 > step) say("low pass: set the start frequency equal to the step for a true time origin", 5000);
+    }
+}
 static void mem_store(int k, int t)
 {
     mem_t *m = &mem[k];
@@ -824,6 +941,7 @@ static void mem_store(int k, int t)
 }
 static void act(int a)
 {
+    td_gen++;
     if (a >= A_SUB && a < A_SUB_END && a != SUB(MN_SDLOAD)) { menu_show(a - A_SUB); return; }
     if (a >= A_TRACE0 && a <= A_TRACE3) {
         int t = a - A_TRACE0;
@@ -876,7 +994,10 @@ static void act(int a)
     }
     if (a == A_SDAUTO) { sd_autoname ^= 1; dirty |= D_MENU; return; }
     if (a >= A_MS0 && a < A_MSEND) { meas_mode = (uint8_t)(a - A_MS0); dirty |= D_MENU | D_GRAPH; return; }
-    if (a == A_MSRL || a == A_MSVF) { grid_show(G_KEYPAD, a); return; }
+    if (a == A_MSRL || a == A_MSVF || a == A_TDSPAN) { grid_show(G_KEYPAD, a); return; }
+    if (a == A_TDON) { td_set(!td_on); dirty |= D_FULL; return; }
+    if (a == A_TDIMP || a == A_TDSTEP || a == A_TDBP) { td_mode = a == A_TDIMP ? TD_IMPULSE : a == A_TDSTEP ? TD_STEP : TD_BANDPASS; td_gen++; dirty |= D_FULL; return; }
+    if (a >= A_TDW0 && a < A_TDWEND) { td_win = (uint8_t)(a - A_TDW0); td_gen++; dirty |= D_FULL; return; }
     if (a >= A_SAVE0 && a < A_SAVEEND) {
         int n = a - A_SAVE0; say("saving...", 10000); draw_status();
         say(store_save(n) ? "error: flash write failed" : "saved", 3000); dirty |= D_MENU; return;
@@ -895,7 +1016,7 @@ static void act(int a)
     switch (a) {
     case A_BACK: if (menu_id == MN_HOME) menu_close(); else menu_show(menu_parent[menu_id]); return;
     case A_PAUSE: sweep_running = !sweep_running; if (!sweep_running) synth_all_off(); dirty |= D_MENU | D_STATUS; return;
-    case A_TRANSFORM: case A_CSTD: case A_BRIGHT: case A_TXPOWER:
+    case A_CSTD: case A_BRIGHT: case A_TXPOWER:
         say("not built yet: see the plan in NOTES.md (stage 12)", 3000); return;
     case A_CHANNEL: tr[tr_act].ch ^= 1; if (tr[tr_act].fmt >= F_S21SR && !tr[tr_act].ch) set_format(F_LOGMAG, 0); dirty |= D_FULL; return;
     case A_SCALEDIV: case A_REFVAL: case A_REFPOS: case A_EDELAY: case A_S21OFF: case A_PORTZ:
@@ -1076,10 +1197,10 @@ static void draw_graph(void)
 {
     int hh = GY1 - GY0, xend = menu_open ? MX : GX1;
     int prev[4] = { -1, -1, -1, -1 }, prevm[4] = { -1, -1, -1, -1 };
-    int rect = any_kind(K_RECT), smith = any_kind(K_SMITH), polar = any_kind(K_POLAR);
+    int rect = any_kind(K_RECT), smith = !td_on && any_kind(K_SMITH), polar = !td_on && any_kind(K_POLAR);
     int mcol[NMK]; for (int m = 0; m < NMK; m++) mcol[m] = mk[m].on ? col_of_point(mk[m].idx) : -100;
-    for (int xs = 0; GX0 + xs < xend; xs += 32) {
-        int x0 = GX0 + xs, w = xend - x0 < 32 ? xend - x0 : 32;
+    for (int xs = 0; GX0 + xs < xend; xs += STRIP) {
+        int x0 = GX0 + xs, w = xend - x0 < STRIP ? xend - x0 : STRIP;
         for (int r = 0; r < hh; r++) {
             int line = rect && (r % DIV_PX == 0 || r == hh - 1);
             for (int k = 0; k < w; k++) BUF[r * w + k] = line && (!dot_grid || ((xs + k) & 3) == 0) ? C_GRID : C_BG;
@@ -1091,7 +1212,7 @@ static void draw_graph(void)
         if (smith) smith_grid(x0, w);
         if (polar) polar_grid(x0, w);
         if (have_data) {
-            for (int t = 3; t >= 0; t--) if (tr[t].on && fkind(t) != K_RECT) chart_trace(t, x0, w);
+            if (!td_on) for (int t = 3; t >= 0; t--) if (tr[t].on && fkind(t) != K_RECT) chart_trace(t, x0, w);
             for (int k = 0; k < 4; k++) {                 /* stored traces, under the live ones */
                 mem_t *m = &mem[k]; if (!m->on || m->n < 2) continue;
                 const trace_t *src = &tr[m->src];
@@ -1167,6 +1288,7 @@ static void draw_legend(void)
         if (!tr[t].on) put_s(p, "hidden");
         else {
             p = put_s(p, tr[t].ch ? "S21 " : "S11 ");
+            if (td_on && fkind(t) != K_RECT) { put_s(p, "(not shown in the time domain)"); goto legend_out; }
             if (fkind(t) == K_SMITH) { p = put_s(p, "SMITH "); p = put_s(p, (tr[t].ch ? smode_s21 : smode_s11)[tr[t].smode]); *p++ = ' '; }
             else { p = put_s(p, fmts[tr[t].fmt].name); *p++ = ' '; if (fkind(t) == K_RECT) { p = put_scale(p, tr[t].fmt, tr[t].scale); p = put_s(p, "/ "); } }
             if (idx >= 0 && have_data) {
@@ -1178,6 +1300,7 @@ static void draw_legend(void)
                 }
             }
         }
+    legend_out:;
         int cw = (menu_open ? MX : W) / 2;
         line_text((t & 1) * cw + 2, 1 + (t >> 1) * 12, b, tr[t].on ? tcolor[t] : C_DIM, (t & 1) * cw + cw - 2);
     }
@@ -1187,6 +1310,19 @@ static void draw_readout(void)
     int xm = menu_open ? MX : W, idx = active_idx();
     char b[160], *p = b;
     if (idx < 0 || !have_data) { line_text(2, RY0, "no active marker", C_DIM, xm); line_text(2, RY0 + RDY, "", C_DIM, xm); return; }
+    if (td_on) {
+        float t = td_time(idx);
+        p = put_s(p, "M"); p = put_u(p, mk_act + 1, 1); p = put_s(p, " t "); p = put_eng(p, t, "s");
+        p = put_s(p, "   S11 distance "); p = put_fx(p, C_LIGHT_ * meas_vf * t / 2, 3); p = put_s(p, " m   S21 "); p = put_fx(p, C_LIGHT_ * meas_vf * t, 3);
+        p = put_s(p, " m   VF "); put_fx(p, meas_vf, 2);
+        line_text(2, RY0, b, C_TEXT, xm);
+        cpx *o = TD_OUT;
+        p = put_s(b, td_mode == TD_IMPULSE ? "low pass impulse" : td_mode == TD_STEP ? "low pass step" : "band pass");
+        p = put_s(p, "   S11 "); p = put_sfx(p, td_mode == TD_BANDPASS ? c_db(o[idx]) : o[idx].re, td_mode == TD_BANDPASS ? 2 : 4); if (td_mode == TD_BANDPASS) p = put_s(p, " dB");
+        p = put_s(p, "   S21 "); p = put_sfx(p, td_mode == TD_BANDPASS ? c_db(o[POINTS_MAX + idx]) : o[POINTS_MAX + idx].re, td_mode == TD_BANDPASS ? 2 : 4); if (td_mode == TD_BANDPASS) put_s(p, " dB");
+        line_text(2, RY0 + RDY, b, C_DIM, xm);
+        return;
+    }
     uint64_t f = point_freq(idx);
     cpx s11, s21; point_vals(idx, &s11, &s21);
     cpx z = g_to_z(s11);
@@ -1372,6 +1508,7 @@ static void draw_status(void)
     p = put_s(p, cal_on && cal_valid() ? "on" : cal_have ? "partial" : "none");
     if (edelay != 0) { p = put_s(p, "  ED "); p = put_eng(p, edelay, "s"); }
     if (port_z != 50) { p = put_s(p, "  Z0 "); p = put_fx(p, port_z, 1); }
+    if (td_on) p = put_s(p, td_mode == TD_IMPULSE ? "  TD impulse" : td_mode == TD_STEP ? "  TD step" : "  TD band pass");
     p = put_s(p, sweep_running ? "  #" : "  PAUSED #"); p = put_u(p, sweep_count, 1);
     p = put_s(p, "  "); p = put_fx(p, vbat_volts(), 2); p = put_s(p, " V");
     if (!touch_ok) put_s(p, "  touch: uncalibrated");
@@ -1604,7 +1741,7 @@ void ui_cfg_put(const uint8_t *b, int n)
     tm_ax = c.ax; tm_bx = c.bx; tm_ay = c.ay; tm_by = c.by; tm_swap = c.swap; touch_ok = c.touch_ok;
     if (c.flipped != flipped) { flipped = c.flipped; madctl ^= 0xC0; if (lcd_ready) lcd_cmd(0x36, &madctl, 1); }
 }
-void ui_redraw_full(void) { dirty |= D_FULL; }
+void ui_redraw_full(void) { dirty |= D_FULL; td_gen++; }
 void ui_render_screen(void)                          /* the whole screen as it stands, for a capture */
 {
     if (!ui_on) lcd_test_card();
@@ -1618,14 +1755,17 @@ void ui_render_screen(void)                          /* the whole screen as it s
 static void render(void)
 {
     uint16_t d = dirty; dirty = 0;
+    td_prepare();                                    /* before any drawing: it uses the drawing's half of adc_buf as scratch */
     if (mode == MODE_TCAL || mode == MODE_INFO || mode == MODE_TTEST) return;
     if (mode == MODE_GRID) { if (d & (D_FULL | D_MENU)) draw_grid(); return; }
+    td_drawing = 1;
     if (d & D_FULL) { lcd_fill(0, 0, W, H, C_BG); d |= D_LEGEND | D_GRAPH | D_READOUT | D_STATUS | D_MENU; }
     if (d & D_LEGEND) draw_legend();
     if (d & D_GRAPH) { draw_axes(); draw_graph(); draw_measure(); }
     if (d & D_READOUT) draw_readout();
     if (d & D_STATUS) draw_status();
     if (menu_open && (d & D_MENU)) draw_menu();
+    td_drawing = 0;
 }
 void ui_redraw(void) { have_data = 1; dirty |= D_GRAPH | D_LEGEND | D_READOUT | D_STATUS; }
 static void ui_start(int sweep)
@@ -1697,8 +1837,12 @@ static void print_trace(int t)
 static void print_marker(int m)
 {
     con_udec(m + 1); con_puts(mk[m].on ? " on " : " off "); con_udec(mk[m].idx); con_putc(' ');
-    char b[24]; put_u(b, point_freq(mk[m].idx), 1); con_puts(b);
+    if (td_on) { con_puts("t "); put_g(td_time(mk[m].idx)); con_puts(" s"); }
+    else { char b[24]; put_u(b, point_freq(mk[m].idx), 1); con_puts(b); }
     if (m == mk_act) con_puts(" active");
+    if (have_data) for (int t = 0; t < 4; t++) if (tr[t].on && fkind(t) == K_RECT) {   /* each shown trace's value there */
+        con_puts(" t"); con_udec(t + 1); con_putc('='); put_g(trace_val(t, mk[m].idx));
+    }
     con_puts("\r\n");
 }
 static void cmd_trace(int argc, char **argv)
@@ -1861,10 +2005,25 @@ static void cmd_ui(int argc, char **argv)
 void ui_command(int argc, char **argv)
 {
     const char *c = argv[0];
+    td_gen++;
     if (streq(c, "trace")) { cmd_trace(argc, argv); if (ui_on && lcd_ready && dirty) render(); return; }
     if (streq(c, "marker")) { cmd_marker(argc, argv); if (ui_on && lcd_ready && dirty) render(); return; }
     if (streq(c, "display")) { cmd_display(argc, argv); if (ui_on && lcd_ready && dirty) render(); return; }
     if (streq(c, "ui")) { cmd_ui(argc, argv); return; }
+    if (streq(c, "transform")) {                     /* transform [on|off|impulse|step|bandpass|window min|normal|max] */
+        for (int k = 1; k < argc; k++) {
+            const char *a = argv[k];
+            if (streq(a, "on")) td_set(1); else if (streq(a, "off")) td_set(0);
+            else if (streq(a, "impulse")) td_mode = TD_IMPULSE; else if (streq(a, "step")) td_mode = TD_STEP; else if (streq(a, "bandpass")) td_mode = TD_BANDPASS;
+            else if (streq(a, "window") && k + 1 < argc) { k++; td_win = streq(argv[k], "min") ? 0 : streq(argv[k], "max") ? 2 : 1; }
+            else if (streq(a, "span") && k + 1 < argc) { float v; k++; if (!parse_num(argv[k], 1, &v) || v < 0) { con_puts("usage: transform span <s> (0 = full)\r\n"); return; } td_span = v; }
+            else { con_puts("usage: transform [on|off|impulse|step|bandpass|window min|normal|max|span <s>]\r\n"); return; }
+        }
+        static const char *const wn[] = { "min", "normal", "max" };
+        con_puts(td_on ? "on " : "off "); con_puts(td_mode == TD_IMPULSE ? "impulse" : td_mode == TD_STEP ? "step" : "bandpass");
+        con_puts(" window "); con_puts(wn[td_win]); con_puts(" span "); put_g(td_time(sweep_cfg.points - 1)); con_puts(" s of "); put_g(td_range()); con_puts(" s\r\n");
+        dirty |= D_FULL; if (ui_on && lcd_ready) render(); return;
+    }
     if (streq(c, "measure")) {                       /* measure [mode] | rl <ohm> | vf <0-1>: prints the results */
         float v;
         if (argc == 3 && streq(argv[1], "rl") && parse_num(argv[2], 1, &v) && v > 0) meas_rl = v;

@@ -847,6 +847,45 @@ cycles instead of 541,118, conversions missed, the reference collapsed
 from ~570 to ~10 counts. Caught by `raw`'s cycle count before anything was
 measured or committed. The capture loop has no spare cycles for that.
 
+## Stage 18: TRANSFORM, the time domain (2026-11-11)
+
+DISPLAY > TRANSFORM: TD ON, LP IMPULSE, LP STEP, BANDPASS, WINDOW (minimum,
+normal, maximum: Kaiser beta 0, 6, 13), VEL FACTOR, and TD SPAN (ours);
+console `transform [on|off|impulse|step|bandpass|window ..|span <s>]`.
+
+No RAM for an FFT, so the response is evaluated directly at the displayed
+times from the calibrated, windowed spectrum (about 40 ms a channel):
+
+- Low pass: point k is harmonic k+1 of the step (set start = step; a
+  warning says so otherwise), DC extrapolated from the first two points,
+  real impulse h(t) = [X0 + 2 Re sum X_k e^(j 2 pi (k+1) df t)] normalised by
+  the window's weight (an open peaks at 1); the step is the running sum,
+  normalised by 2n+1 so it settles at the DC value. Range: half a period,
+  1/(2 df).
+- Band pass: complex sum over a whole period, 1/df, normalised by the
+  window's weight.
+- TD SPAN shows any part of that range at full resolution (the direct
+  evaluation takes arbitrary times; an FFT could not).
+
+Results sit in adc_buf above the 8 KB the drawing uses (graph strips are 16
+columns now, text uses half the buffer), keyed on the capture counter, the
+sweep and every setting that changes them, and recomputed before a frame,
+never during one. The capture counter is incremented after the capture
+loop (541,179 cycles for 6600 samples, as before).
+
+Checked with an ideal line written in by `point` (harmonic sweep 125 kHz x
+401, 20 ns one way, open): impulse peak 0.000 dB at 39.9 ns (40 ns, 10 ns
+steps), 40.00 ns exactly with a 200 ns span; step +0.9986 (open) and
+-0.9986 (short); band pass 0.000 dB at 39.9 ns; a second reflection of 0.3
+at 120 ns shows at -10.5 dB. Smith and polar traces are not drawn in the
+time domain; the readout gives time and distance at the velocity factor
+(S11 halved for the round trip).
+
+A first build showed noise in some strips: the key that decides a
+recompute was compared byte by byte with uninitialised padding, so it
+recomputed mid-frame into the drawing's buffer. Zeroed now, and a
+recompute is refused while a frame is drawn.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -890,4 +929,5 @@ recording (2026-11-10).
 - Stage 15: SD CARD menu: S1P/S2P Touchstone, BMP screenshots, calibration
   files and LOAD.
 - Stage 16: MEASURE modes (L/C match, cable, shunt LC, series L, crystal).
-  Next: transform and stored traces (RAM), brightness, TX power, cal kit. Next: touch map, settings and calibration in flash.
+- Stage 17: stored traces A-D. Stage 18: TRANSFORM (time domain).
+  Next: brightness, TX power, cal kit, expert settings. Next: touch map, settings and calibration in flash.

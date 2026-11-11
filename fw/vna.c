@@ -310,7 +310,7 @@ uint16_t adc_single(int ch)
  * off instead of the segment mean: a periodic Hann window has no response to
  * DC at the IF bin, so the result is the same (checked against dft3 by `raw`).
  * The samples are still stored for `raw`. */
-uint32_t capture_cycles;
+uint32_t capture_cycles, capture_seq;
 int capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip, cpx out[4])
 {
     static const uint8_t st[4][2] = { {1, 0}, {0, 0}, {0, 1}, {1, 0} };
@@ -345,6 +345,7 @@ int capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip, cpx out[4])
         phs += IF_STEP; if (phs >= SEG_N) phs -= SEG_N;
     }
     capture_cycles = DWT_CYCCNT - t0;                /* first to last sample: (total - 1) * 82 if none missed */
+    capture_seq++;                                   /* adc_buf rewritten (after the loop: no cost to it) */
     out[k] = c_mk(re * (2.0f / 1000.0f), im * (2.0f / 1000.0f));
     ADC_CTRL2 &= ~(1u << 1);
     while (ADC_CTRL2 & (1u << 22)) ;

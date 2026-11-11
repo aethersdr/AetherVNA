@@ -1053,6 +1053,30 @@ static void command(char *line)
         rf_keep_others = 1; con_puts("rfprog leaves other pins as they are\r\n");
     } else if (streq(line, "keepothers off")) {
         rf_keep_others = 0; con_puts("rfprog drives other candidates high\r\n");
+    } else if ((line[0] == 'm' && line[1] == 'x' && line[2] == ' ') ||
+               (line[0] == 'm' && line[1] == 'x' && line[2] == 'l' && line[3] == ' ')) {
+        /* mx <hex>...: words to the MAX2871 on CLK PA2, DATA PA3, LE PA1.
+         * mxl <le> <hex>...: same CLK/DATA, LE on pin code <le> (decimal). */
+        const char *q = line + 3; int nw = 0; uint8_t le = 0x01;
+        if (line[2] == 'l') {
+            q = line + 4; int x = 0; while (*q >= '0' && *q <= '9') x = x * 10 + (*q++ - '0');
+            if (x >= 64 || x == 0x0B || x == 0x0C || x == 0x0D || x == 0x0E || x == 0x02 || x == 0x03) { con_puts("error: bad LE pin\r\n"); goto mx_done; }
+            le = x;
+        }
+        pp_out(0x02, 0); pp_out(0x03, 0); pp_out(le, 0);
+        while (*q) {
+            while (*q == ' ') q++;
+            uint32_t w = 0; int any = 0;
+            for (;;) {
+                char ch = *q; int d = ch >= '0' && ch <= '9' ? ch - '0' : ch >= 'a' && ch <= 'f' ? ch - 'a' + 10 : ch >= 'A' && ch <= 'F' ? ch - 'A' + 10 : -1;
+                if (d < 0) break;
+                w = (w << 4) | d; q++; any = 1;
+            }
+            if (!any) break;
+            max2871_write(0x02, 0x03, le, w); nw++;
+        }
+        con_dec(nw); con_puts(" words written\r\n");
+    mx_done: ;
     } else if (streq(line, "rfrelease")) {
         cmd_rfrelease(); con_puts("released\r\n");
     } else if (streq(line, "lcdred")) {
@@ -1066,7 +1090,7 @@ static void command(char *line)
     } else if (streq(line, "jog")) {
         cmd_jog();
     } else if (streq(line, "help")) {
-        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | synthrf [k] | rfprog c d le n | rfrelease | pin c 0|1|r | msw reg v.. | adc0 n | bootloader | reset | help\r\n");
+        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | synthrf [k] | rfprog c d le n | rfrelease | pin c 0|1|r | msw reg v.. | mx hex.. | adc0 n | bootloader | reset | help\r\n");
     } else {
         con_puts("error: unknown command; help lists them\r\n");
     }

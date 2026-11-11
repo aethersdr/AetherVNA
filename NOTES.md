@@ -258,6 +258,49 @@ stimulus or the IF in this band; no separate reference channel was found. They
 may act only with the MAX2871 (high band), which is next: its LO arrangement
 (CLK0 harmonics or otherwise) and the remaining pins.
 
+## Stage 4: high band, a second MAX2871 for the LO (2026-11-10)
+
+New commands: `mx <hex>...` writes raw 32-bit words to the MAX2871 on CLK
+PA2 / DATA PA3 / LE PA1; `mxl <le> <hex>...` the same with another LE pin.
+Fractional words from the datasheet (fREF 24 MHz, R = 1, fPFD 24 MHz, M = 4000,
+band-select divider 480 so the VAS clock stays under 50 kHz). Thru connected.
+
+- **MS5351M harmonics are not the high-band LO.** With the stimulus MAX2871 at
+  300.000 MHz, CLK0 or CLK1 at 150.006 / 100.004 / 75.003 MHz (2nd/3rd/4th
+  harmonic 12 kHz away) gives at most ~7 counts of 12 kHz IF (CLK0, 3rd).
+  Nor is the stimulus MAX2871 an LO for MS5351M harmonics (CLK2 at 100 MHz,
+  MAX2871 at 300.012 MHz on output A, B or both, PA8 low or high): nothing.
+- **A second MAX2871 is the LO, LE = PA4**, sharing CLK PA2 and DATA PA3. With
+  the stimulus at 300.000 MHz (LE PA1), the LO at 300.012 / 300.020 / 299.970
+  MHz written via LE PA4 gives a 12 / 20 / 30 kHz IF on the port 2 channel at
+  full scale (clipping); the LO shut down via PA4, or the stimulus shut down
+  via PA1, removes it; a shutdown word via LE PA9 changes nothing. (The
+  teardown photographed one 2871E outside the cans; this one is presumably
+  under a can.) Like the open V2 design: two synthesizers, stimulus and LO.
+- **Levels:** both MAX2871s at APWR 0 and both gain pins low: 538 counts on the
+  port 2 channel (thru), 1.4 counts on port 1 (terminated by the thru).
+- **A 16.35 kHz tone** (~20 counts, harmonic at 32.7 kHz) appears on the port 1
+  channel whenever PA8 is high, also with both MAX2871s shut down: a board
+  spur, probably a switching regulator. IF frequencies should avoid it.
+- **No other pin matters:** PA9, PA10, PB0, PB2, PB9, PB12, PC13, PC14, PC15
+  change neither channel in either band (the microSD slot is the likely owner of
+  some; not checked).
+
+### The measurement chain
+
+| Function | Control |
+|---|---|
+| Reference | 24.000 MHz TCXO, shared by the MS5351M and both MAX2871s |
+| Low-band stimulus | MS5351M CLK2 (PA8 low) |
+| Low-band LO | MS5351M CLK0 |
+| High-band stimulus | MAX2871 #1, LE PA1 (PA8 high) |
+| High-band LO | MAX2871 #2, LE PA4 |
+| MAX2871 bus | CLK PA2, DATA PA3 (shared) |
+| Stimulus to port 1 | PA6 low |
+| Receiver channel | PA7: low = port 1 (reflection), high = port 2 (transmission) |
+| IF gain | PB14, PB15 (low = less gain) |
+| IF | PA0, ADC channel 0 (biased at VDDA/2); 1.714 MS/s measured |
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -279,5 +322,5 @@ recording (2026-11-10).
 - Stage 2a (I2C scan): done, MS5351M at 0x60 on PB10/PB11.
 - Stage 2c: touch, display, backlight and jog mapped; MAX2871 not found by
   MUX/LD response.
-- Stage 3: low band mapped (CLK2 stimulus, CLK0 LO, PA7 channel, PB14/PB15
-  gain). Next: high band (MAX2871 stimulus, its LO), then a first sweep.
+- Stage 4: high band mapped (second MAX2871 on LE PA4 is the LO). The
+  measurement chain is complete. Next: a first sweep from our own firmware.

@@ -1027,7 +1027,7 @@ scored on run 2 (RMS of the corrected drift):
 The touch controller's readings fitted run 1 best and failed on run 2 (they
 lose track when the screen goes off); the MCU sensor held through all three
 parts of run 2. Not correctable: 50 kHz phase (7.6 deg in run 2, no sensor
-predicts it). This revises stage 11, where the sensor was compared without
+predicts it; see below: it is not thermal). This revises stage 11, where the sensor was compared without
 a lag and with the high band as the heater: a lag explains "kept moving
 after the sensor settled", but high-band heat (local to the MAX2871s) has
 not been checked against this model, so its own warning stays.
@@ -1053,11 +1053,35 @@ Built:
 - the bench's host calibration (calibrate.py) records the same reading per
   standard and warns when a calibration is used more than 4 mV away.
 
-The new code moved `capture3` by 0x4FC: a capture now takes (6600 - 1) x 82
-cycles plus 223 (63-66 before), identical on every capture, with the inline
-and separate DFTs agreeing to 1e-6: a fixed overhead, no missed
-conversions. Not checked on the unit: the SD calibration file's new tail
-(saving needs the menu, which needs the screen on).
+Not thermal: **50 kHz phase moves in whole IF samples with the screen.**
+Its 7.4-7.6 deg swings in both runs are steps of exactly one sample
+(41/2000 of the 12 kHz IF, 7.38 deg; within 0.44 deg in run 1, 0.96 in
+run 2): +1 when the screen came on in run 1, -1 when it went off and back
+when it came on in run 2. No other frequency steps. Something tied to the
+screen's state shifts the 50 kHz capture by one sample (open: the earlier
++0.5 dB screen-on step at 50 kHz is likely related).
+
+Checks on the unit:
+- the capture: `capture3` moved by 0x4FC and now takes (6600 - 1) x 82
+  cycles plus 223, not 63-66, identical on every capture; where the extra
+  ~160 cycles go is not found. A slipped conversion would move every
+  frequency's phase by 7.38 deg; the raw short, 0.1-2 MHz, on this build
+  agrees with the last sweep of run 2 within 0.09 deg (0.05 MHz moved one
+  step, as the screen state predicts);
+- the correction: with an identity calibration and the calibration's
+  temperature set 10 mV below the lagged reading, corrected/raw matched
+  the table within 1e-5 dB (e.g. 0.1 MHz -0.0535 dB, -0.258 deg), and was
+  1 at 50 kHz and 2.05 MHz;
+- readings between sweep points: 25 snapshots of a 30-point continuous
+  sweep (avg 1, a reading every 2 s) scattered 0.0012 dB SD, max 0.0042 dB,
+  against 0.0014 / 0.0071 dB for host scans without readings;
+- save/recall of the temperature in a flash slot, the warning (threshold
+  set to 0.01 mV), `cal put` reading as unknown.
+Not checked on the unit: the SD calibration file's new tail (saving needs
+the menu, which needs the screen on). After a reset the lag starts from
+that moment's reading, and stage 11 saw the sensor rise 3-5 mV after a
+reboot while the low band stayed flat: the warning can be wrong for the
+first several minutes after a reset or power-on.
 
 ## Recovery
 

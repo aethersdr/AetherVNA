@@ -442,9 +442,15 @@ int cal_valid(void)
     return terms_ok && same_cfg(&cal_cfg, &sweep_cfg);
 }
 void cal_reset(void) { cal_have = 0; terms_ok = 0; cal_on = 0; }
+int cal_range(uint64_t *start, uint64_t *stop, int *points)
+{
+    if (!cal_have) return -1;
+    *start = cal_cfg.start; *stop = cal_cfg.stop; *points = cal_cfg.points;
+    return 0;
+}
 int cal_measure(int which)
 {
-    if (which < 0 || which >= CAL_N) return -1;
+    if (which < 0 || which > CAL_ISOLN) return -1;
     if (cal_have && !same_cfg(&cal_cfg, &sweep_cfg)) cal_have = 0;
     cal_cfg = sweep_cfg; terms_ok = 0;
     if (sweep_once() < 0) return -2;
@@ -452,8 +458,9 @@ int cal_measure(int which)
         switch (which) {
         case CAL_OPEN:  std_open[i] = pts[i].s11; break;
         case CAL_SHORT: std_short[i] = pts[i].s11; break;
-        case CAL_LOAD:  std_load[i] = pts[i].s11; std_iso[i] = pts[i].s21; break;
+        case CAL_LOAD:  std_load[i] = pts[i].s11; if (!(cal_have & CAL_ISO_BIT)) std_iso[i] = pts[i].s21; break;
         case CAL_THRU:  std_t11[i] = pts[i].s11; std_t21[i] = pts[i].s21; break;
+        case CAL_ISOLN: std_iso[i] = pts[i].s21; break;
         }
     }
     cal_have |= 1u << which;
@@ -498,11 +505,13 @@ int cal_solve(void)
     terms_ok = 1; cal_on = 1;
     return 0;
 }
+uint8_t cal_enhanced = 1;                       /* 0: S21 by response and isolation only */
 void cal_apply(int i, cpx *s11, cpx *s21)
 {
     const terms_t *t = &terms[i];
     cpx g = corr11(*s11, t);
-    *s21 = c_mul(c_div(c_sub(*s21, t->e30), t->e10e32), c_sub(c_mk(1, 0), c_mul(t->e11, g)));
+    *s21 = c_div(c_sub(*s21, t->e30), t->e10e32);
+    if (cal_enhanced) *s21 = c_mul(*s21, c_sub(c_mk(1, 0), c_mul(t->e11, g)));
     *s11 = g;
 }
 

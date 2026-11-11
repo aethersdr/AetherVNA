@@ -109,8 +109,19 @@ static void cmd_cal(void)
     static const char *const names[] = { "open", "short", "load", "thru" };
     if (argc_ == 1) {
         for (int k = 0; k < CAL_N; k++) if (cal_have & (1 << k)) { con_puts(names[k]); con_putc(' '); }
+        if (cal_have & CAL_ISO_BIT) con_puts("isoln ");
         if (cal_valid()) con_puts(cal_on ? "applied" : "off");
         nl(); return;
+    }
+    if (streq(argv_[1], "enhanced")) {
+        if (argc_ > 2) cal_enhanced = argv_[2][0] == '1';
+        con_puts(cal_enhanced ? "enhanced 1\r\n" : "enhanced 0\r\n"); return;
+    }
+    if (streq(argv_[1], "isoln")) {
+        uint8_t was = sweep_running; sweep_running = 0;
+        int r = cal_measure(CAL_ISOLN);
+        sweep_running = was;
+        con_puts(r ? "error: measurement failed\r\n" : "ok\r\n"); return;
     }
     for (int k = 0; k < CAL_N; k++) if (streq(argv_[1], names[k])) {
         uint8_t was = sweep_running; sweep_running = 0;
@@ -142,7 +153,7 @@ static void cmd_cal(void)
     if (streq(argv_[1], "on")) { if (cal_valid()) { cal_on = 1; con_puts("ok\r\n"); } else con_puts("error: no calibration for this sweep\r\n"); return; }
     if (streq(argv_[1], "off")) { cal_on = 0; con_puts("ok\r\n"); return; }
     if (streq(argv_[1], "reset")) { cal_reset(); con_puts("ok\r\n"); return; }
-    con_puts("usage: cal [open|short|load|thru|done|on|off|reset|get <std|terms>|put <std> <i> 4 values]\r\n");
+    con_puts("usage: cal [open|short|load|thru|isoln|done|on|off|reset|enhanced [0|1]|get <std|terms>|put <std> <i> 4 values]\r\n");
 }
 
 /* raw: one capture at the current tuning, the samples and the device's own
@@ -168,12 +179,12 @@ static void cmd_raw(void)
 static void cmd_help(void)
 {
     con_puts("measurement: scan <start> <stop> [points] [outmask] | sweep [start stop [points]] | data [0|1] |\r\n"
-             "  frequencies | cal [open|short|load|thru|done|on|off|reset] | cal get <std|terms> |\r\n"
+             "  frequencies | cal [open|short|load|thru|isoln|done|on|off|reset|enhanced [0|1]] | cal get <std|terms> |\r\n"
              "  cal put <std> <i> <s11re> <s11im> <s21re> <s21im> | pause | resume | flags |\r\n"
              "  settle [samples] | tsettle [us] | avg [auto|n] | gain [auto|0..3] | bracket [0|1] | retune [0|1]\r\n"
-             "display: trace [1-4 [on|off|s11|s21|<format>|scale <v>|ref <v>|refpos <d>|auto|active]] |\r\n"
-             "  formats logmag phase swr smith linear r x z | marker [1-4 [on|off|active|<index>|minswr|max|min]] |\r\n"
-             "  ui [state|tap <x> <y>|jog l|r|L|R|rr|redraw] | touch [cal|map [ax bx ay by swap]] |\r\n"
+             "display: trace [1-4 [...]] (trace 1 x for the formats) | marker [1-8 [...]|delta|tracking|jogstep] |\r\n"
+             "  display [edelay|s21offset|portz|gridvalues|dotgrid|flip] |\r\n"
+             "  ui [state|tap <x> <y>|jog l|r|L|R|rr|menu <name>|select <row>|redraw] | touch [cal|map [ax bx ay by swap]] |\r\n"
              "  lcd [init|test|ui [nosweep]|off|capture|madctl <hex>|inv 0|1|marker <i>|status] | backlight [0|1]\r\n"
              "instrument: version | info | vbat | temp | clk [tcxo] |\r\n"
              "  bootloader | reset\r\n"
@@ -299,7 +310,7 @@ void console_line(char *line)
         if (argv_[2][0] == 'r') pin_input((uint8_t)pp, 0); else pin_out((uint8_t)pp, argv_[2][0] == '1');
         con_puts("ok\r\n");
     }
-    else if (streq(c, "lcd") || streq(c, "backlight") || streq(c, "touch") || streq(c, "trace") || streq(c, "marker") || streq(c, "ui")) ui_command(argc_, argv_);
+    else if (streq(c, "lcd") || streq(c, "backlight") || streq(c, "touch") || streq(c, "trace") || streq(c, "marker") || streq(c, "display") || streq(c, "ui")) ui_command(argc_, argv_);
     else if (streq(c, "bootloader") || streq(c, "reset")) {
         if (jog_pressed()) { con_puts("error: the jog is pressed; a reset now would start the ROM bootloader\r\n"); return; }
         if (streq(c, "bootloader")) { con_puts("entering bootloader\r\n"); enter_bootloader(); }

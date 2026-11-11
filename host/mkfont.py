@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate fw/fonts.c: anti-aliased proportional fonts for the screen.
 
-Renders printable ASCII (0x20-0x7E) from a TrueType font with ImageMagick
+Renders printable ASCII (0x20-0x7E) and 0x7F-0x82 as Omega, degree, micro, Delta from a TrueType font with ImageMagick
 (`magick ... label:`), crops every glyph of a size to the rows any glyph
 inks, and stores 4-bit coverage (16 levels), two pixels per byte, row by
 row, with each glyph's advance width. The firmware blends each pixel
@@ -14,7 +14,8 @@ SPDX-License-Identifier: GPL-3.0-or-later (this script)"""
 import subprocess, sys
 
 SIZES = [("font_s", 11), ("font_m", 16), ("font_l", 24)]   # name, ImageMagick point size
-FIRST, LAST = 0x20, 0x7E
+FIRST, LAST = 0x20, 0x82
+EXTRA = {0x7F: "\u03a9", 0x80: "\u00b0", 0x81: "\u00b5", 0x82: "\u0394"}   # Ohm, degree, micro, Delta
 
 
 def render(font, pt, text):
@@ -29,7 +30,7 @@ def render(font, pt, text):
 def glyphs(font, pt):
     g = {}
     for c in range(FIRST + 1, LAST + 1):
-        ch = chr(c)
+        ch = EXTRA.get(c, chr(c))
         text = "\\" + ch if ch in "@\\" else ch       # label: reads @file and escapes
         g[c] = render(font, pt, text)
     w2, h, _ = render(font, pt, "aa")

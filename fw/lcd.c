@@ -264,6 +264,7 @@ int ftext(int x, int y, const char *s, const font_t *f, uint16_t fg, uint16_t bg
         pal[a] = (uint16_t)((((fr * a + br * (15 - a) + 7) / 15) << 11) | (((fgg * a + bgg * (15 - a) + 7) / 15) << 5) | ((fb * a + bb * (15 - a) + 7) / 15));
     int h = f->h, maxw = BUF_PX / h;
     if (xmax > W) xmax = W;
+    while (*s && x < 0) { x += f->w[fglyph(f, *s)]; s++; }   /* clip on the left by whole glyphs */
     while (*s) {
         int w = 0, n = 0;
         while (s[n]) {

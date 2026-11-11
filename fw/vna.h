@@ -40,6 +40,7 @@ extern uint32_t sweep_count;
 
 void vna_init(void);
 void vna_background(void);
+void vna_restart(void);
 
 uint64_t sweep_freq(int i);
 int  tune(uint64_t f, uint64_t *tuned);  /* 0 ok, <0 out of range */
@@ -56,6 +57,7 @@ void dft3(const uint16_t *buf, int settle, cpx out[4]);
 extern uint16_t adc_buf[];
 float vbat_volts(void);
 void vna_adc_init(void);
+uint16_t adc_single(int ch);              /* e.g. 9 = PB1, the jog ladder */
 
 /* calibration (one-path SOLT; ideal standards) */
 enum { CAL_OPEN, CAL_SHORT, CAL_LOAD, CAL_THRU, CAL_N };

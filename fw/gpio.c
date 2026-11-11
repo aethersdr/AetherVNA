@@ -35,7 +35,7 @@ void gpio_init(void)
     pin_out(P_LCD_CS, 1); pin_out(P_LCD_DC, 1); pin_out(P_TOUCH_CS, 1);
     pin_input(P_TOUCH_IRQ, 1);
     pin_input(P_JOG_RIGHT, 1);
-    pin_input(P_JOG_LADDER, 0);
+    pin_input(P_JOG_LADDER, 1);              /* the ladder floats at rest (0.97-2.8 V measured); left pulls it to 0 V */
     pin_od(P_I2C_SCL); pin_od(P_I2C_SDA);
     pin_cfg(P_ADC_IF, 0);                    /* analog */
 }

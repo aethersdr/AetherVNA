@@ -461,6 +461,36 @@ A full SOLT check with real standards needs the maintainer's caps.
 (a host can save and restore a calibration), `flags` (tuned frequency,
 reference level, status per point), `raw <freq>` (samples and the device DFT).
 
+## Stage 8: display UI (2026-11-10)
+
+Hardware SPI1 (remapped PB3/PB4/PB5) at 12 MHz for the panel and 375 kHz for
+the HR2046. Eyes-free proof that the bus works: `vbat` 1323 counts through
+hardware SPI (the probe's bit-banged read was 1299), `touch` y 4095 / z2 4085
+with nothing touching. Battery scale set so 1299 counts reads 4.07 V, the
+value stock showed for that state (a 3.3 V reference would read 0.25 V high).
+
+The panel cannot be read back, so what it shows is **not confirmed by eye**.
+Defaults: MIPI-DCS reset, sleep-out, 16-bit pixels, MADCTL 0x28 (row/column
+exchange for landscape, BGR so red is red), inversion off, 480x320. `lcd test`
+draws a self-describing card (corner labels, labelled colour bars, a white
+480x320 edge and a magenta 320x240 corner); `lcd madctl <hex>` and
+`lcd inv 0|1` change it at run time.
+
+UI (`lcd ui`, and at power-on 1.5 s after start so USB enumerates first):
+status line (range, points, calibration, battery, sweep count), log
+magnitude +10 to -70 dB with S11 yellow and S21 cyan, a marker moved by the
+jog with frequency, S11 dB/phase/SWR and S21 dB/phase, and point flags. No
+framebuffer: drawn in 32-column strips through the ADC buffer, between
+points. Repeatability with the UI drawing is unchanged (101 points,
+1 MHz-1 GHz: 0.005 dB max, 0.0009 dB median sd).
+
+**Jog ladder:** PB1 floats at rest (0.97-2.8 V over 30 reads with no pull, so
+a digital read was unsafe for the reset guard). The internal pull-up holds it
+at 2.48-2.85 V; left still pulls it to 0 V; it is read with the ADC
+(pressed below 1000 counts). The jog push (in) changes no pin we can read and
+may be wired to BOOT0, which would explain the ROM bootloader hazard: the
+reset guard cannot see it.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -485,5 +515,6 @@ recording (2026-11-10).
 - Stage 6: repeatability matches or beats stock (thru +/-0.006 dB, short
   +/-0.0046 dB, 1 MHz-1 GHz).
 - Stage 7: sweep, console and calibration on the device, 50 kHz-6.3 GHz.
-  Next: the display UI; an open/short level check above 1 GHz; the
-  near-integer MAX2871 states.
+- Stage 8: display UI built, starts at power-on; to be confirmed by eye.
+  Next: saved settings and calibration in flash, touch input, an open/short
+  level check above 1 GHz, the near-integer MAX2871 states.

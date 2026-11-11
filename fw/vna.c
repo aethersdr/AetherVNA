@@ -232,6 +232,7 @@ int tune(uint64_t f, uint64_t *tuned)
 
 /* ---------- coherent 3-segment capture ---------- */
 uint16_t adc_buf[4 * (SEG_N + 300)];
+static uint8_t adc_up;
 void vna_adc_init(void);
 static void adc_init(void)
 {
@@ -241,8 +242,22 @@ static void adc_init(void)
     ADC_CTRL2 |= 1u << 3; for (uint32_t t = 0; (ADC_CTRL2 & 8) && t < 1000000; t++) ;
     ADC_CTRL2 |= 1u << 2; for (uint32_t t = 0; (ADC_CTRL2 & 4) && t < 1000000; t++) ;
     ADC_OSQ1 = 0; ADC_OSQ3 = 0;                     /* PA0, channel 0 */
+    adc_up = 1;
 }
 void vna_adc_init(void) { adc_init(); }
+/* One conversion of another channel between captures (capture3 sets channel 0 again). */
+uint16_t adc_single(int ch)
+{
+    if (!adc_up) { adc_init(); }
+    ADC_CTRL2 &= ~(1u << 1);
+    ADC_OSQ3 = (uint32_t)ch;
+    (void)ADC_ODT;
+    ADC_CTRL2 |= 1u << 22;
+    for (uint32_t t = 0; !(ADC_STS & 2) && t < 100000; t++) ;
+    uint16_t v = ADC_ODT & 0xFFF;
+    ADC_OSQ3 = 0;
+    return v;
+}
 /* Reference (PA6 high, PA7 low), port 1 (PA6 low, PA7 low), port 2 (PA6 low, PA7 high),
  * and with bracketing the reference again. Pins switch between conversions at
  * fixed sample indices. */
@@ -457,6 +472,7 @@ int cal_terms_get(int i, cpx t[6])
 
 /* ---------- background ---------- */
 static int bg_i;
+void vna_restart(void) { bg_i = 0; }   /* the background sweep starts over (new sweep settings) */
 void vna_init(void)
 {
     table_init();

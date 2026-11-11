@@ -129,10 +129,13 @@ int clock_use_tcxo(void)
 }
 
 /* ---- jog safety: a reset with the jog held starts Artery's ROM bootloader ---- */
+/* The ladder (PB1) idles at 2.5-2.8 V, only ~0.3 V above the digital-high
+ * threshold, so it is read with the ADC: left pulls it to 0 V. */
+int jog_left(void) { return adc_single(9) < 1000; }          /* below ~0.8 V */
 int jog_pressed(void)
 {
     if (!pin_read(P_JOG_RIGHT)) return 1;
-    return !pin_read(P_JOG_LADDER);      /* the ladder idles near 2 V; left pulls it to 0 V */
+    return jog_left();
 }
 
 void enter_bootloader(void)

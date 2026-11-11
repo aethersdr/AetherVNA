@@ -81,6 +81,7 @@ static int set_sweep(uint64_t start, uint64_t stop, int points)
     if (start < FREQ_MIN || stop > FREQ_MAX || stop < start) { con_puts("frequency range is invalid\r\n"); return 0; }
     if (points < 1 || points > POINTS_MAX) { con_puts("sweep points exceeds range 401\r\n"); return 0; }
     sweep_cfg.start = start; sweep_cfg.stop = stop; sweep_cfg.points = points;
+    vna_restart();
     return 1;
 }
 
@@ -94,6 +95,7 @@ static void cmd_info(void)
     con_puts("Clock: "); con_puts(clock_on_tcxo() ? "TCXO (HEXT, PLL x2)" : "internal (HICK)"); nl();
     con_puts("Range: 50000 6300000000 Hz, points 1..401, IF 12000 Hz\r\n");
     con_puts("Calibration: "); con_puts(cal_on && cal_valid() ? "applied" : (cal_have ? "partial" : "none")); nl();
+    con_puts("Sweeps: "); con_udec(sweep_count); con_puts(sweep_running ? " (running)" : " (paused)"); nl();
 }
 
 static void cmd_cal(void)
@@ -163,7 +165,8 @@ static void cmd_help(void)
              "  frequencies | cal [open|short|load|thru|done|on|off|reset] | cal get <std|terms> |\r\n"
              "  cal put <std> <i> <s11re> <s11im> <s21re> <s21im> | pause | resume | flags |\r\n"
              "  settle [samples] | tsettle [us] | avg [n] | gain [auto|0..3] | bracket [0|1]\r\n"
-             "instrument: version | info | vbat | clk [tcxo] | lcd [init|test|off] | backlight 0|1 | touch |\r\n"
+             "instrument: version | info | vbat | clk [tcxo] | backlight [0|1] | touch |\r\n"
+             "  lcd [init|test|ui [nosweep]|off|madctl <hex>|inv 0|1|marker <i>|status] |\r\n"
              "  bootloader | reset\r\n"
              "diagnostics: raw <freq> | tune <freq> | ms r <reg> <n> | ms w <reg> <v>... | mx <le pin> <hex> | pin <code> <0|1|r>\r\n"
              "frequencies take k, M, G suffixes; outmask: 1 freq, 2 S11, 4 S21, 8 uncalibrated\r\n");
@@ -234,6 +237,14 @@ void console_line(char *line)
         extern uint32_t tune_settle_us;
         if (argc_ > 1) { uint64_t v; if (parse_u64(argv_[1], &v) && v <= 100000) tune_settle_us = (uint32_t)v; else { con_puts("usage: tsettle [0..100000 us]\r\n"); return; } }
         con_udec(tune_settle_us); con_puts(" us\r\n");
+    }
+    else if (streq(c, "jog")) {   /* ladder level (PB1, ADC ch9), digital reads, right (PB13) */
+        uint32_t sum = 0, ones = 0;
+        for (int i = 0; i < 16; i++) sum += adc_single(9);
+        for (int i = 0; i < 1000; i++) ones += pin_read(P_JOG_LADDER);
+        con_puts("ladder "); con_udec(sum / 16); con_puts(" counts ("); con_udec(sum / 16 * 3300 / 4095); con_puts(" mV) digital-high ");
+        con_udec(ones); con_puts("/1000 right "); con_puts(pin_read(P_JOG_RIGHT) ? "up" : "down");
+        con_puts(" pressed "); con_udec(jog_pressed()); nl();
     }
     else if (streq(c, "vbat")) { con_udec((uint32_t)(vbat_volts() * 1000 + 0.5f)); con_puts(" mV\r\n"); }
     else if (streq(c, "clk")) {

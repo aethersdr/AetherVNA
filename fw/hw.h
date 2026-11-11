@@ -96,6 +96,7 @@ int  clock_on_tcxo(void);
 int  clock_use_tcxo(void);
 void enter_bootloader(void);
 int  jog_pressed(void);
+int  jog_left(void);
 void service(void);        /* USB and console, called from long loops */
 
 /* gpio.c */

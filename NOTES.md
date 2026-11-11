@@ -219,6 +219,14 @@ move; every other candidate is held static.
 
 ## Recovery
 
+**End every probe session with a real power cycle** (USB unplugged, switch
+off), not just a reflash. The MAX2871 and MS5351M keep their registers until
+power is removed, and stock does not rewrite all of them: after the MAX2871
+tests, restored stock read the thru -3.35 dB / -28.9 deg off above 100 MHz
+(raw S21, a step at its 100 MHz crossover, nothing below). A power cycle
+brought the raw thru back to within 0.008 dB / 0.07 deg of the calibration-time
+recording (2026-11-10).
+
 1. Our firmware's `bootloader` command, or power on with the jog held.
 2. Write the stock image (`liteVNA64-260713.bin`) at 0x08004000 with the bench's V2-protocol flash tool, which follows Zeenko's documented DFU registers.
 3. Zeenko's bootloader (0x08000000–0x08003FFF) and the option bytes are never

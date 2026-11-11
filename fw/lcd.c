@@ -251,3 +251,42 @@ void lcd_off(void)
     pin_set(P_BACKLIGHT, 0);
     lcd_ready = 0;
 }
+
+/* ---------- anti-aliased text (fonts.c) ---------- */
+static int fglyph(const font_t *f, char c) { return (c < f->first || c > f->last) ? '?' - f->first : c - f->first; }
+int ftext_w(const char *s, const font_t *f) { int w = 0; for (; *s; s++) w += f->w[fglyph(f, *s)]; return w; }
+/* Draws s at (x, y), stopping before xmax; returns the x after the last glyph. */
+int ftext(int x, int y, const char *s, const font_t *f, uint16_t fg, uint16_t bg, int xmax)
+{
+    uint16_t pal[16];
+    int fr = fg >> 11, fgg = (fg >> 5) & 63, fb = fg & 31, br = bg >> 11, bgg = (bg >> 5) & 63, bb = bg & 31;
+    for (int a = 0; a < 16; a++)
+        pal[a] = (uint16_t)((((fr * a + br * (15 - a) + 7) / 15) << 11) | (((fgg * a + bgg * (15 - a) + 7) / 15) << 5) | ((fb * a + bb * (15 - a) + 7) / 15));
+    int h = f->h, maxw = BUF_PX / h;
+    if (xmax > W) xmax = W;
+    while (*s) {
+        int w = 0, n = 0;
+        while (s[n]) {
+            int gw = f->w[fglyph(f, s[n])];
+            if (w + gw > maxw || x + w + gw > xmax) break;
+            w += gw; n++;
+        }
+        if (!n) break;
+        int cx = 0;
+        for (int k = 0; k < n; k++) {
+            int g = fglyph(f, s[k]), gw = f->w[g];
+            const uint8_t *d = f->data + f->offs[g];
+            for (int r = 0, p = 0; r < h; r++)
+                for (int c = 0; c < gw; c++, p++) {
+                    uint8_t b = d[p >> 1];
+                    BUF[r * w + cx + c] = pal[(p & 1) ? (b & 15) : (b >> 4)];
+                }
+            cx += gw;
+        }
+        lcd_blit(x, y, w, h, BUF);
+        x += w; s += n;
+        if (s[0] && x + f->w[fglyph(f, s[0])] > xmax) break;
+        service();
+    }
+    return x;
+}

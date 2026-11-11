@@ -2,6 +2,7 @@
  * Copyright (C) 2026 the AetherSDR project. SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
 #include <stdint.h>
+#include "fonts.h"
 
 #define W 480
 #define H 320
@@ -21,6 +22,8 @@ void lcd_test_card(void);
 
 int  text(int x, int y, const char *s, uint16_t fg, uint16_t bg, int sc);   /* returns x after */
 int  text_w(const char *s, int sc);
+int  ftext(int x, int y, const char *s, const font_t *f, uint16_t fg, uint16_t bg, int xmax);   /* anti-aliased, clipped at xmax */
+int  ftext_w(const char *s, const font_t *f);
 
 char *put_s(char *p, const char *s);
 char *put_u(char *p, uint64_t v, int min_digits);

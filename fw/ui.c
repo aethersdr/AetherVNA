@@ -28,7 +28,7 @@
 #define GX0 34
 #define GX1 474                                      /* exclusive */
 #define GW  (GX1 - GX0)
-#define GY0 24
+#define GY0 26
 #define DIV_PX 32
 #define NDIV 8
 #define GY1 (GY0 + NDIV * DIV_PX)                    /* exclusive */
@@ -38,8 +38,8 @@
 #define SR  127
 #define MX  384                                      /* menu panel: x MX..W-1 */
 #define MROW 35
-#define RY0 (GY1 + 4)                                /* readout lines */
-#define RDY 11
+#define RY0 (GY1 + 1)                                /* readout lines */
+#define RDY 12
 
 #define C_BG    0x0000
 #define C_GRID  0x31A6
@@ -152,16 +152,8 @@ static char *put_eng(char *p, float v, const char *unit)   /* SI prefix, 4 signi
 /* Text that stops at xmax (the menu's edge when it is open), the rest up to xmax cleared. */
 static void line_text(int x, int y, const char *s, uint16_t fg, int xmax)
 {
-    char b[100]; int n = 0, w = 0;
-    while (s[n] && n < (int)sizeof b - 1) {
-        char one[2] = { s[n], 0 };
-        int cw = text_w(one, 1);
-        if (x + w + cw > xmax) break;
-        b[n] = s[n]; w += cw; n++;
-    }
-    b[n] = 0;
-    int e = n ? text(x, y, b, fg, C_BG, 1) : x;
-    if (e < xmax) lcd_fill(e, y, xmax - e, 8, C_BG);
+    int e = *s ? ftext(x, y, s, &font_s, fg, C_BG, xmax) : x;
+    if (e < xmax) lcd_fill(e, y, xmax - e, font_s.h, C_BG);
 }
 
 /* ---------- menus ---------- */
@@ -243,8 +235,8 @@ static void draw_menu(void)
         lcd_fill(MX, y + 1, 1, MROW - 2, C_EDGE);
         lcd_fill(MX + 1, y + 1, W - MX - 1, MROW - 2, bg);
         lcd_fill(MX, y + MROW - 1, W - MX, 1, C_BG);
-        int sc = text_w(b, 2) <= W - MX - 6 ? 2 : 1;
-        text(MX + 4, y + (MROW - 8 * sc) / 2, b, C_TEXT, bg, sc);
+        const font_t *f = ftext_w(b, &font_m) <= W - MX - 8 ? &font_m : &font_s;
+        ftext(MX + 5, y + (MROW - f->h) / 2, b, f, C_TEXT, bg, W - 2);
     }
 }
 static void menu_show(int id) { menu_open = 1; menu_id = id; menu_sel = 0; dirty |= D_MENU; }
@@ -287,8 +279,8 @@ static void draw_grid(void)
 {
     int cols = grid_cols(), cw = W / cols, ch = (H - 64) / 4;
     lcd_fill(0, 0, W, 64, C_BG);
-    text(8, 6, grid_kind == G_KEYPAD ? target_name() : "BAND PRESETS (keeps the point count)", C_DIM, C_BG, 2);
-    if (grid_kind == G_KEYPAD) { char b[24]; char *p = put_s(b, kb); put_s(p, "_"); text(8, 32, b, C_TEXT, C_BG, 3); }
+    ftext(8, 6, grid_kind == G_KEYPAD ? target_name() : "BAND PRESETS (keeps the point count)", &font_m, C_DIM, C_BG, W);
+    if (grid_kind == G_KEYPAD) { char b[24]; char *p = put_s(b, kb); put_s(p, "_"); ftext(8, 32, b, &font_l, C_TEXT, C_BG, W); }
     for (int k = 0; k < grid_cells(); k++) {
         int x = (k % cols) * cw, y = 64 + (k / cols) * ch;
         const char *l = grid_label(k);
@@ -296,8 +288,8 @@ static void draw_grid(void)
         uint16_t bg = k == grid_sel ? C_BTNHI : C_BTN;
         lcd_fill(x, y, cw, ch, C_EDGE);
         lcd_fill(x + 1, y + 1, cw - 2, ch - 2, bg);
-        int sc = text_w(l, 3) <= cw - 8 ? 3 : 2;
-        text(x + (cw - text_w(l, sc)) / 2, y + (ch - 8 * sc) / 2, l, C_TEXT, bg, sc);
+        const font_t *f = ftext_w(l, &font_l) <= cw - 8 ? &font_l : &font_m;
+        ftext(x + (cw - ftext_w(l, f)) / 2, y + (ch - f->h) / 2, l, f, C_TEXT, bg, x + cw - 1);
     }
 }
 static void grid_show(int kind, int target)
@@ -630,13 +622,16 @@ static void draw_axes(void)
     int t = -1;
     if (tr[tr_act].on && tr[tr_act].fmt != F_SMITH) t = tr_act;
     else for (int k = 0; k < 4; k++) if (tr[k].on && tr[k].fmt != F_SMITH) { t = k; break; }
-    lcd_fill(0, GY0 - 4, GX0 - 1, GY1 - GY0 + 8, C_BG);
+    lcd_fill(0, GY0, GX0 - 1, GY1 - GY0, C_BG);
     if (t < 0) return;
     for (int d = 0; d <= NDIV; d++) {
         float v = tr[t].ref + (NDIV - d - tr[t].refpos) * tr[t].scale;
         char b[16]; float a = v < 0 ? -v : v;
         put_fx(b, v, a >= 100 || tr[t].scale >= 5 ? 0 : a >= 10 || tr[t].scale >= 0.5f ? 1 : 2);
-        text(GX0 - 3 - text_w(b, 1), GY0 + d * DIV_PX - 3, b, tcolor[t], C_BG, 1);
+        int y = GY0 + d * DIV_PX - font_s.h / 2;
+        if (y < GY0) y = GY0;
+        if (y > GY1 - font_s.h) y = GY1 - font_s.h;
+        ftext(GX0 - 3 - ftext_w(b, &font_s), y, b, &font_s, tcolor[t], C_BG, GX0 - 1);
     }
 }
 
@@ -645,8 +640,8 @@ static int active_idx(void) { return mk[mk_act].on ? mk[mk_act].idx : -1; }
 static char *put_val(char *p, int fmt, float v)
 {
     switch (fmt) {
-    case F_LOGMAG: return put_sfx(p, v, 3);
-    case F_PHASE: return put_sfx(p, v, 2);
+    case F_LOGMAG: return put_sfx(p, v, 2);
+    case F_PHASE: return put_sfx(p, v, 1);
     case F_SWR: return put_fx(p, v, 3);
     case F_SMITH: case F_LINEAR: return put_fx(p, v, 4);
     default: return put_sfx(p, v, 2);
@@ -674,7 +669,7 @@ static void draw_legend(void)
                 } else { p = put_val(p, tr[t].fmt, trace_val(t, idx)); *p++ = ' '; put_s(p, fmt_unit[tr[t].fmt]); }
             }
         }
-        line_text((t & 1) * 192 + 2, 2 + (t >> 1) * 11, b, tr[t].on ? tcolor[t] : C_DIM, (t & 1) * 192 + 190);
+        line_text((t & 1) * 192 + 2, 1 + (t >> 1) * 12, b, tr[t].on ? tcolor[t] : C_DIM, (t & 1) * 192 + 190);
     }
 }
 static void draw_readout(void)
@@ -737,8 +732,8 @@ static void draw_cross(int x, int y)
 {
     lcd_fill(0, 0, W, H, C_BG);
     lcd_fill(x - 12, y, 25, 1, C_TEXT); lcd_fill(x, y - 12, 1, 25, C_TEXT);
-    text(110, 150, "TOUCH CAL: tap the centre of the cross", C_TEXT, C_BG, 1);
-    text(110, 164, "(hold the jog left to cancel)", C_DIM, C_BG, 1);
+    ftext(100, 144, "TOUCH CAL: tap the centre of the cross", &font_m, C_TEXT, C_BG, W);
+    ftext(100, 166, "(hold the jog left to cancel)", &font_s, C_DIM, C_BG, W);
 }
 static void touch_cal_start(void) { mode = MODE_TCAL; tcal_step = 0; draw_cross(tcal_pt[0][0], tcal_pt[0][1]); }
 static void touch_cal_point(uint16_t rx, uint16_t ry)

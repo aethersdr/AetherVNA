@@ -61,6 +61,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 13: microSD slot found (SPI1, chip select PB9); SPI-mode driver and FAT32 read/write checked on a test card | Done |
 | 14: save/recall slots 0-6 (settings, display, calibration) and config (touch map) in flash; slot 0 at power-on | Done |
 | 15: SD CARD menu: S1P/S2P Touchstone, BMP screenshots, calibration save and LOAD | Done |
+| 16: MEASURE modes: L/C match, cable, shunt LC, series L, crystal, checked against exact circuit models | Done |
 | Later: the remaining stock menus (NOTES.md, stage 12), open/short level check above 1 GHz | Planned |
 
 ## Build and flash
@@ -95,8 +96,9 @@ commands follow NanoVNA-D so existing tools can drive it:
 | `touch [cal\|map [ax bx ay by swap]]` | raw reading, on-screen touch calibration, the mapping |
 | `lcd [init\|test\|ui\|off\|capture\|madctl <hex>\|inv 0\|1\|marker <i>\|status]`, `backlight` | display; `capture` streams the redrawn screen (`host/screenshot.py` makes a PNG) |
 | `save <0-6>`, `recall <0-6>`, `config [save\|erase]` | settings and calibrations in flash (slot 0 loads at power-on); `config erase` before restoring stock |
+| `measure [off\|lc\|cable\|shuntlc\|seriesl\|xtal]`, `measure rl\|vf <v>` | MEASURE modes: L/C match, cable, shunt LC, series L, crystal (results printed and drawn on screen) |
 | `sd status\|probe\|cs\|init\|mount\|ls\|verify\|write`, `sd save s1p\|s2p\|cal\|bmp [fixed]`, `sd load\|cat\|hex\|rm <file>` | microSD (SPI1, chip select PB9), FAT32, Touchstone and calibration files; `fat`, `fatrange`, `patsec`, `unlink`, `fsinfo` for repair |
-| `raw <freq>`, `tune`, `ms`, `mx`, `pin`, `clk` | diagnostics |
+| `raw <freq>`, `tune`, `ms`, `mx`, `pin`, `clk`, `point <i> <4 values>` | diagnostics (`point` writes a raw sweep point, paused: for testing) |
 | `bootloader`, `reset` | refused while the jog is pressed |
 
 On the device: tap the screen (or double-click the jog right) for the menu;

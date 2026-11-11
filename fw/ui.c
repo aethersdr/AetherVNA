@@ -141,6 +141,11 @@ static uint8_t mk_delta, mk_tracking, search_min;  /* delta: values relative to 
 static uint32_t jog_step;                          /* Hz per jog click, 0 = one point */
 
 static float edelay, s21_offset, port_z = 50;      /* s, dB, ohm */
+enum { MS_OFF, MS_LC, MS_CABLE, MS_SHUNTLC, MS_SERIESL, MS_XTAL, MS_N };
+static uint8_t meas_mode;
+static float meas_rl = 50, meas_vf = 0.66f;
+static const char *const meas_name[MS_N] = { "off", "lc", "cable", "shuntlc", "seriesl", "xtal" };
+
 static uint8_t grid_values = 1, dot_grid, flipped;
 
 /* ---------- UI state ---------- */
@@ -272,11 +277,11 @@ static int any_kind(int k) { for (int t = 0; t < 4; t++) if (tr[t].on && fkind(t
 /* ---------- number formatting ---------- */
 static char *put_eng(char *p, float v, const char *unit)   /* SI prefix, 4 significant digits */
 {
-    static const char *const pre[] = { "p", "n", MU, "m", "", "k", "M", "G" };
-    float a = v < 0 ? -v : v; int e = 4;
+    static const char *const pre[] = { "f", "p", "n", MU, "m", "", "k", "M", "G" };
+    float a = v < 0 ? -v : v; int e = 5;
     if (a > 0) {
         while (a < 1 && e > 0) { a *= 1000; v *= 1000; e--; }
-        while (a >= 1000 && e < 7) { a /= 1000; v /= 1000; e++; }
+        while (a >= 1000 && e < 8) { a /= 1000; v /= 1000; e++; }
     }
     p = put_fx(p, v, a < 10 ? 3 : a < 100 ? 2 : 1);
     *p++ = ' '; p = put_s(p, pre[e]);
@@ -284,11 +289,11 @@ static char *put_eng(char *p, float v, const char *unit)   /* SI prefix, 4 signi
 }
 static char *put_short_eng(char *p, float v)       /* axis labels: 3 digits and a prefix */
 {
-    static const char *const pre[] = { "p", "n", MU, "m", "", "k", "M", "G" };
-    float a = v < 0 ? -v : v; int e = 4;
+    static const char *const pre[] = { "f", "p", "n", MU, "m", "", "k", "M", "G" };
+    float a = v < 0 ? -v : v; int e = 5;
     if (a > 0) {
         while (a < 1 && e > 0) { a *= 1000; v *= 1000; e--; }
-        while (a >= 1000 && e < 7) { a /= 1000; v /= 1000; e++; }
+        while (a >= 1000 && e < 8) { a /= 1000; v /= 1000; e++; }
     }
     float fr = a - (float)(int)(a + 0.5f); if (fr < 0) fr = -fr;
     p = put_fx(p, v, a < 10 && fr > 0.05f ? 1 : 0);
@@ -355,7 +360,7 @@ static void line_text(int x, int y, const char *s, uint16_t fg, int xmax)
 /* ---------- menus ---------- */
 enum {
     MN_HOME, MN_DISPLAY, MN_TRACE, MN_F11, MN_F11B, MN_F11C, MN_S11SM, MN_F21, MN_F21B, MN_S21SM, MN_SCALE, MN_AVG,
-    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_N
+    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_MEAS, MN_N
 };
 enum {
     A_NONE, A_BACK,
@@ -375,11 +380,12 @@ enum {
     A_TOUCHCAL, A_TOUCHTEST, A_SAVECFG, A_VERSION, A_BRIGHT, A_FLIP, A_CLEARCFG, A_BOOTLOAD,
     A_SAVE0, A_SAVEEND = A_SAVE0 + 7, A_RCL0 = A_SAVEEND, A_RCLEND = A_RCL0 + 7,
     A_SDS1P = A_RCLEND, A_SDS2P, A_SDSCREEN, A_SDSCAL, A_SDAUTO, A_FILE0, A_FILEEND = A_FILE0 + 8,
-    A_N = A_FILEEND
+    A_MS0 = A_FILEEND, A_MSEND = A_MS0 + 6, A_MSRL = A_MSEND, A_MSVF,
+    A_N
 };
 #define SUB(m) (A_SUB + (m))
 static uint8_t menus[MN_N][MROWS] = {                /* MN_SDLOAD is filled from the card */
-    [MN_HOME]    = { SUB(MN_DISPLAY), SUB(MN_MARKER), SUB(MN_STIM), SUB(MN_CALMENU), SUB(MN_RECALL), A_MEASURE, SUB(MN_SD), SUB(MN_CONFIG), A_PAUSE },
+    [MN_HOME]    = { SUB(MN_DISPLAY), SUB(MN_MARKER), SUB(MN_STIM), SUB(MN_CALMENU), SUB(MN_RECALL), SUB(MN_MEAS), SUB(MN_SD), SUB(MN_CONFIG), A_PAUSE },
     [MN_DISPLAY] = { SUB(MN_TRACE), SUB(MN_F11), SUB(MN_F21), A_CHANNEL, SUB(MN_SCALE), A_TRANSFORM, SUB(MN_AVG), A_PORTZ, A_BACK },
     [MN_TRACE]   = { A_TRACE0, A_TRACE0 + 1, A_TRACE0 + 2, A_TRACE0 + 3, A_STORE, A_BACK },
     [MN_F11]     = { A_F0 + F_LOGMAG, A_F0 + F_PHASE, A_F0 + F_DELAY, SUB(MN_S11SM), A_F0 + F_SWR, A_F0 + F_R, A_F0 + F_X, A_F0 + F_Z, SUB(MN_F11B), A_BACK },
@@ -404,18 +410,19 @@ static uint8_t menus[MN_N][MROWS] = {                /* MN_SDLOAD is filled from
     [MN_RECALL]  = { A_RCL0, A_RCL0 + 1, A_RCL0 + 2, A_RCL0 + 3, A_RCL0 + 4, A_RCL0 + 5, A_RCL0 + 6, A_BACK },
     [MN_SD]      = { A_SDS1P, A_SDS2P, A_SDSCREEN, A_SDSCAL, A_SDAUTO, SUB(MN_SDLOAD), A_BACK },
     [MN_SDLOAD]  = { A_FILE0, A_FILE0 + 1, A_FILE0 + 2, A_FILE0 + 3, A_FILE0 + 4, A_FILE0 + 5, A_FILE0 + 6, A_FILE0 + 7, A_BACK },
+    [MN_MEAS]    = { A_MS0, A_MS0 + 1, A_MS0 + 2, A_MS0 + 3, A_MS0 + 4, A_MS0 + 5, A_MSRL, A_MSVF, A_BACK },
 };
 static const uint8_t menu_parent[MN_N] = {
     [MN_HOME] = MN_HOME, [MN_DISPLAY] = MN_HOME, [MN_TRACE] = MN_DISPLAY, [MN_F11] = MN_DISPLAY, [MN_F11B] = MN_F11,
     [MN_F11C] = MN_F11B, [MN_S11SM] = MN_F11, [MN_F21] = MN_DISPLAY, [MN_F21B] = MN_F21, [MN_S21SM] = MN_F21,
     [MN_SCALE] = MN_DISPLAY, [MN_AVG] = MN_DISPLAY, [MN_MARKER] = MN_HOME, [MN_SELMK] = MN_MARKER, [MN_OPS] = MN_MARKER,
     [MN_STIM] = MN_HOME, [MN_CFGSW] = MN_STIM, [MN_CALMENU] = MN_HOME, [MN_CAL] = MN_CALMENU, [MN_CONFIG] = MN_HOME,
-    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD,
+    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD, [MN_MEAS] = MN_HOME,
 };
 static const char *const menu_name[MN_N] = {
     "home", "display", "trace", "format_s11", "format_s11_more", "format_s11_more2", "s11_smith", "format_s21",
     "format_s21_more", "s21_smith", "scale", "avg", "marker", "select_marker", "operations", "stimulus", "cfg_sweep",
-    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load" };
+    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load", "measure" };
 static const uint8_t avg_vals[8] = { AVG_AUTO, 1, 2, 4, 8, 16, 32, 64 };
 static uint8_t menu_open, menu_id, menu_sel;
 static char sd_files[8][13]; static int sd_nfiles; static uint8_t sd_autoname = 1;
@@ -429,7 +436,7 @@ static int item_label(int a, char *b)
     static const char *const sub_n[MN_N] = {
         "HOME", "DISPLAY", "TRACE", "FORMAT S11", ">MORE", ">MORE", "SMITH", "FORMAT S21", ">MORE", "SMITH",
         "SCALE", "AVG", "MARKER", "SELECT MK", "OPERATIONS", "STIMULUS", "CFG SWEEP", "CALIBRATE", "CALIBRATE",
-        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD" };
+        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD", "MEASURE" };
     char *p = b; *p = 0;
     if (a == A_BACK) { put_s(p, "< BACK"); return CK_NONE; }
     if (a >= A_SUB && a < A_SUB_END) { put_s(p, sub_n[a - A_SUB]); return CK_NONE; }
@@ -458,7 +465,13 @@ static int item_label(int a, char *b)
         for (int j = 0; sd_files[k][j] && sd_files[k][j] != '.'; j++) *p++ = sd_files[k][j];
         *p = 0; return CK_NONE;
     }
+    if (a >= A_MS0 && a < A_MSEND) {
+        static const char *const n[] = { "OFF", "L/C MATCH", "CABLE S11", "SHUNT LC", "SERIES L", "XTAL" };
+        put_s(p, n[a - A_MS0]); return meas_mode == a - A_MS0 ? CK_ON : CK_OFF;
+    }
     switch (a) {
+    case A_MSRL: p = put_s(p, "Rl "); p = put_fx(p, meas_rl, meas_rl == (int)meas_rl ? 0 : 1); put_s(p, OHM); return CK_NONE;
+    case A_MSVF: p = put_s(p, "VF "); put_fx(p, meas_vf, 2); return CK_NONE;
     case A_SDS1P: put_s(p, "SAVE S1P"); return CK_NONE;
     case A_SDS2P: put_s(p, "SAVE S2P"); return CK_NONE;
     case A_SDSCREEN: put_s(p, "SAVE SCREEN"); return CK_NONE;
@@ -477,7 +490,6 @@ static int item_label(int a, char *b)
     }
     switch (a) {
     case A_PAUSE: put_s(p, "PAUSE"); return sweep_running ? CK_OFF : CK_ON;
-    case A_MEASURE: put_s(p, "MEASURE"); return CK_DIM;
     case A_STORE: put_s(p, "STORE TRACE"); return CK_DIM;
     case A_CHANNEL: put_s(p, tr[tr_act].ch ? "CHAN S21" : "CHAN S11"); return CK_NONE;
     case A_SCALEDIV: put_s(p, "SCALE/DIV"); return CK_NONE;
@@ -599,6 +611,8 @@ static const char *target_name(void)
     case A_REFPOS: return "REFERENCE POSITION (0-8 divisions)";
     case A_EDELAY: return "ELECTRICAL DELAY (s; n p " MU ")";
     case A_S21OFF: return "S21 OFFSET (dB)";
+    case A_MSRL: return "MEASURE: TERMINATION Rl (" OHM ")";
+    case A_MSVF: return "VELOCITY FACTOR (0.1-1)";
     default: return "PORT IMPEDANCE (" OHM ")";
     }
 }
@@ -715,6 +729,8 @@ static void keypad_enter(float fmult, uint64_t hmult)
     case A_EDELAY: if ((ok = parse_num(kb, fmult, &v))) edelay = v; break;
     case A_S21OFF: if ((ok = parse_num(kb, fmult, &v))) s21_offset = v; break;
     case A_PORTZ: if ((ok = parse_num(kb, fmult, &v) && v > 0)) port_z = v; break;
+    case A_MSRL: if ((ok = parse_num(kb, fmult, &v) && v > 0)) meas_rl = v; break;
+    case A_MSVF: if ((ok = parse_num(kb, fmult, &v) && v >= 0.1f && v <= 1)) meas_vf = v; break;
     }
     if (!ok) say("not a valid value", 3000);
     grid_leave();
@@ -839,6 +855,8 @@ static void act(int a)
         return;
     }
     if (a == A_SDAUTO) { sd_autoname ^= 1; dirty |= D_MENU; return; }
+    if (a >= A_MS0 && a < A_MSEND) { meas_mode = (uint8_t)(a - A_MS0); dirty |= D_MENU | D_GRAPH; return; }
+    if (a == A_MSRL || a == A_MSVF) { grid_show(G_KEYPAD, a); return; }
     if (a >= A_SAVE0 && a < A_SAVEEND) {
         int n = a - A_SAVE0; say("saving...", 10000); draw_status();
         say(store_save(n) ? "error: flash write failed" : "saved", 3000); dirty |= D_MENU; return;
@@ -857,7 +875,7 @@ static void act(int a)
     switch (a) {
     case A_BACK: if (menu_id == MN_HOME) menu_close(); else menu_show(menu_parent[menu_id]); return;
     case A_PAUSE: sweep_running = !sweep_running; if (!sweep_running) synth_all_off(); dirty |= D_MENU | D_STATUS; return;
-    case A_STORE: case A_TRANSFORM: case A_CSTD: case A_BRIGHT: case A_TXPOWER: case A_MEASURE:
+    case A_STORE: case A_TRANSFORM: case A_CSTD: case A_BRIGHT: case A_TXPOWER:
         say("not built yet: see the plan in NOTES.md (stage 12)", 3000); return;
     case A_CHANNEL: tr[tr_act].ch ^= 1; if (tr[tr_act].fmt >= F_S21SR && !tr[tr_act].ch) set_format(F_LOGMAG, 0); dirty |= D_FULL; return;
     case A_SCALEDIV: case A_REFVAL: case A_REFPOS: case A_EDELAY: case A_S21OFF: case A_PORTZ:
@@ -1150,6 +1168,159 @@ static void draw_readout(void)
     for (int m = 0; m < NMK; m++) if (mk[m].on && m != mk_act && p - b < 120) { p = put_s(p, "  M"); p = put_u(p, m + 1, 1); *p++ = ' '; p = put_freq(p, point_freq(mk[m].idx)); }
     line_text(2, RY0 + RDY, b, C_DIM, xm);
 }
+
+/* ---------- MEASURE modes ----------
+ * Our own derivations from circuit models, on the calibrated data. Rl is
+ * the termination the S21 modes assume (both ports); port Z for L/C match.
+ *   S21 of a series element Z between Rl ports:  S21 = 2Rl / (2Rl + Z)
+ *   S21 of a shunt element Z across the line:   S21 = 2Z / (2Z + Rl) */
+#define C_LIGHT 299792458.0f
+static cpx z_series21(cpx t) { if (c_abs2(t) < 1e-12f) return c_mk(1e9f, 0); cpx z = c_div(c_sub(c_mk(1, 0), t), t); return c_mk(2 * meas_rl * z.re, 2 * meas_rl * z.im); }
+static cpx z_shunt21(cpx t) { cpx d = c_sub(c_mk(1, 0), t); if (c_abs2(d) < 1e-12f) return c_mk(1e9f, 0); cpx z = c_div(t, d); return c_mk(meas_rl / 2 * z.re, meas_rl / 2 * z.im); }
+static float w_of(int i) { return 2 * PI_F * (float)point_freq(i); }
+static char *put_x_as_lc(char *p, const char *what, float x, float w)   /* "series L 1.23 uH" */
+{
+    p = put_s(p, what); p = put_s(p, x >= 0 ? " L " : " C ");
+    return x >= 0 ? put_eng(p, x / w, "H") : put_eng(p, -1 / (w * x), "F");
+}
+static char *put_b_as_lc(char *p, float b, float w)                    /* shunt susceptance */
+{
+    p = put_s(p, b >= 0 ? "shunt C " : "shunt L ");
+    return b >= 0 ? put_eng(p, b / w, "F") : put_eng(p, -1 / (w * b), "H");
+}
+/* parabola through three samples: the offset (-1..1) of the extremum from the middle one */
+static float vertex(float a, float b, float c) { float d = a - 2 * b + c; return d != 0 ? 0.5f * (a - c) / d : 0; }
+static float freq_at(int i, float off)
+{
+    int n = sweep_cfg.points; if (n < 2) return (float)point_freq(i);
+    float step = (float)(sweep_cfg.stop - sweep_cfg.start) / (n - 1);
+    return (float)point_freq(i) + off * step;
+}
+static int meas_lines(char ln[][96])
+{
+    int n = sweep_cfg.points, k = 0, idx = active_idx() < 0 ? 0 : active_idx();
+    char *p;
+    if (!have_data || n < 3) { put_s(ln[0], "MEASURE: no sweep yet"); return 1; }
+    switch (meas_mode) {
+    case MS_LC: {
+        cpx z = g_to_z(point_g(idx, 0)); float R = z.re, X = z.im, Z0 = port_z, w = w_of(idx);
+        p = put_s(ln[k], "L/C MATCH at "); p = put_freq(p, point_freq(idx)); p = put_s(p, ": load "); p = put_rx(p, z, 1);
+        p = put_s(p, " " OHM " to "); p = put_fx(p, Z0, 0); put_s(p, " " OHM); k++;
+        if (R <= 0) { put_s(ln[k++], "no match: the load's resistance is not positive"); return k; }
+        float m2 = R * R + X * X, G = R / m2, BL = -X / m2;
+        if (G * Z0 < 1) for (int sg = -1; sg <= 1; sg += 2) {               /* shunt at the load, series to the source */
+            float bb = sg * fsqrt(G / Z0 - G * G), B = bb - BL, Xs = bb * Z0 / G;
+            p = put_s(ln[k], "at load "); p = put_b_as_lc(p, B, w); p = put_s(p, ", then "); put_x_as_lc(p, "series", Xs, w); k++;
+        }
+        if (R < Z0) for (int sg = -1; sg <= 1; sg += 2) {                   /* series at the load, shunt to the source */
+            float xx = sg * fsqrt(R * (Z0 - R)), Xs = xx - X, B = xx / (R * Z0);
+            p = put_x_as_lc(ln[k], "at load series", Xs, w); p = put_s(p, ", then "); put_b_as_lc(p, B, w); k++;
+        }
+        if (k == 1) put_s(ln[k++], "already matched");
+        return k;
+    }
+    case MS_CABLE: {
+        /* open (or shorted) at the far end: one-way delay from the unwrapped S11 phase slope;
+         * lambda/4 where the unwrapped phase reaches -180 (open) or 0 (short, starting at +180) */
+        float first = c_deg(point_g(0, 0)), prev = first;
+        int open = first > -90 && first < 90;
+        if (!open && first < 0) first += 360;
+        float target = open ? -180 : 0, unwrap = 0, fq = 0;
+        for (int i = 1; i < n; i++) {
+            float ph = c_deg(point_g(i, 0)), d = ph - prev;
+            if (d > 180) d -= 360; else if (d < -180) d += 360;
+            float before = first + unwrap, after = before + d;
+            if (!fq && before > target && after <= target)
+                fq = (float)point_freq(i - 1) + (float)(point_freq(i) - point_freq(i - 1)) * (before - target) / (before - after);
+            unwrap += d; prev = ph;
+            if ((i & 31) == 0) service();
+        }
+        float df = (float)(point_freq(n - 1) - point_freq(0));
+        float tau = fq > 0 ? 1 / (4 * fq)             /* exact for any Z0; the phase slope is biased when Z0 is not the port's */
+                  : df > 0 ? -unwrap / 360.0f / df / 2 : 0;
+        p = put_s(ln[k], open ? "CABLE (open at the far end): " : "CABLE (shorted at the far end): ");
+        if (fq > 0) { p = put_s(p, "lambda/4 at "); put_freq(p, (uint64_t)(fq + 0.5f)); } else put_s(p, "lambda/4 above the sweep (delay from the phase slope)");
+        k++;
+        p = put_s(ln[k], "delay "); p = put_eng(p, tau, "s"); p = put_s(p, " one way, length "); p = put_fx(p, C_LIGHT * meas_vf * tau, 3);
+        p = put_s(p, " m at VF "); put_fx(p, meas_vf, 2); k++;
+        float fq_use = fq > 0 ? fq : (tau > 0 ? 1 / (4 * tau) : 0);
+        if (fq_use > 0) {                            /* Z0 from the stub's reactance near lambda/8 */
+            int best = 0; float bd = 1e30f;
+            for (int i = 0; i < n; i++) { float d = (float)point_freq(i) - fq_use / 2; if (d < 0) d = -d; if (d < bd) { bd = d; best = i; } }
+            float s_, c_; sincos_f(PI_F / 2 * (float)point_freq(best) / fq_use, &s_, &c_);
+            cpx zz = g_to_z(point_g(best, 0));
+            float z0 = open ? (c_ != 0 ? -zz.im * s_ / c_ : 0) : (s_ != 0 ? zz.im * c_ / s_ : 0);
+            p = put_s(ln[k], "Z0 "); p = put_fx(p, z0, 1); p = put_s(p, " " OHM " (at "); p = put_freq(p, point_freq(best)); put_s(p, ")"); k++;
+        }
+        if (fq > 0) {
+            int best = 0; float bd = 1e30f;
+            for (int i = 0; i < n; i++) { float d = (float)point_freq(i) - fq; if (d < 0) d = -d; if (d < bd) { bd = d; best = i; } }
+            p = put_s(ln[k], "loss "); p = put_fx(p, -c_db(point_g(best, 0)) / 2, 3); put_s(p, " dB one way at lambda/4"); k++;
+        }
+        return k;
+    }
+    case MS_SHUNTLC: {
+        int i0 = 0; float m0 = 1e30f;
+        for (int i = 0; i < n; i++) { float m = c_abs2(point_g(i, 1)); if (m < m0) { m0 = m; i0 = i; } }
+        if (i0 == 0 || i0 == n - 1) { put_s(ln[k++], "SHUNT LC: the notch is at the edge of the sweep"); return k; }
+        float off = vertex(c_abs(point_g(i0 - 1, 1)), c_abs(point_g(i0, 1)), c_abs(point_g(i0 + 1, 1)));
+        int d = n / 20 > 1 ? n / 20 : 1, a = i0 - d < 0 ? 0 : i0 - d, b = i0 + d > n - 1 ? n - 1 : i0 + d;
+        float w1 = w_of(a), w2 = w_of(b), x1 = z_shunt21(point_g(a, 1)).im, x2 = z_shunt21(point_g(b, 1)).im;
+        /* X = wL - 1/(wC) at two frequencies */
+        float det = -w1 / w2 + w2 / w1, L = (-x1 / w2 + x2 / w1) / det, iC = (w1 * x2 - w2 * x1) / det;
+        float R = z_shunt21(point_g(i0, 1)).re, f0 = L > 0 && iC > 0 ? fsqrt(iC / L) / (2 * PI_F) : freq_at(i0, off), w0 = 2 * PI_F * f0;
+        p = put_s(ln[k], "SHUNT LC: f0 "); p = put_freq(p, (uint64_t)(f0 + 0.5f)); p = put_s(p, ", R "); p = put_fx(p, R, 3); put_s(p, " " OHM); k++;
+        p = put_s(ln[k], "L "); p = put_eng(p, L, "H"); p = put_s(p, ", C "); p = put_eng(p, iC != 0 ? 1 / iC : 0, "F");
+        p = put_s(p, ", Q "); put_fx(p, R > 0 ? w0 * L / R : 0, 1); k++;
+        return k;
+    }
+    case MS_SERIESL: {
+        cpx z = z_series21(point_g(idx, 1)); float w = w_of(idx);
+        p = put_s(ln[k], "SERIES L at "); p = put_freq(p, point_freq(idx)); p = put_s(p, ": L "); p = put_eng(p, z.im / w, "H");
+        p = put_s(p, ", R "); p = put_fx(p, z.re, 3); p = put_s(p, " " OHM ", Q "); put_fx(p, z.re > 0 ? z.im / z.re : 0, 1); k++;
+        for (int i = 1; i < n; i++) {
+            float xa = z_series21(point_g(i - 1, 1)).im, xb = z_series21(point_g(i, 1)).im;
+            if (xa > 0 && xb <= 0) {
+                float f = (float)point_freq(i - 1) + (float)(point_freq(i) - point_freq(i - 1)) * xa / (xa - xb);
+                p = put_s(ln[k], "self-resonance "); put_freq(p, (uint64_t)(f + 0.5f)); k++; break;
+            }
+        }
+        return k;
+    }
+    case MS_XTAL: {
+        int is = 0; float ms = -1;
+        for (int i = 0; i < n; i++) { float m = c_abs2(point_g(i, 1)); if (m > ms) { ms = m; is = i; } }
+        int ip = -1; float mp = 1e30f;
+        for (int i = is + 1; i < n; i++) { float m = c_abs2(point_g(i, 1)); if (m < mp) { mp = m; ip = i; } }
+        if (is == 0 || is >= n - 1 || ip <= is || ip >= n - 1) { put_s(ln[k++], "XTAL: sweep across both resonances (fs and fp)"); return k; }
+        float fs = freq_at(is, vertex(c_abs(point_g(is - 1, 1)), c_abs(point_g(is, 1)), c_abs(point_g(is + 1, 1))));
+        float fp = freq_at(ip, vertex(c_abs(point_g(ip - 1, 1)), c_abs(point_g(ip, 1)), c_abs(point_g(ip + 1, 1))));
+        float Rm = z_series21(point_g(is, 1)).re;
+        /* C0 from the admittance at the sweep start, below fs: B = wC0 [1 + r / (1 - (f/fs)^2)], r = Cm/C0 */
+        float r = (fp / fs) * (fp / fs) - 1, f1 = (float)point_freq(0), w1 = 2 * PI_F * f1;
+        cpx z1 = z_series21(point_g(0, 1)); float m2 = c_abs2(z1), B1 = m2 > 0 ? -z1.im / m2 : 0;
+        float q = 1 - (f1 / fs) * (f1 / fs), C0 = q != 0 ? B1 / (w1 * (1 + r / q)) : 0, Cm = r * C0;
+        float ws = 2 * PI_F * fs, Lm = Cm > 0 ? 1 / (ws * ws * Cm) : 0;
+        p = put_s(ln[k], "XTAL: fs "); p = put_freq(p, (uint64_t)(fs + 0.5f)); p = put_s(p, ", fp "); put_freq(p, (uint64_t)(fp + 0.5f)); k++;
+        p = put_s(ln[k], "Rm "); p = put_fx(p, Rm, 2); p = put_s(p, " " OHM ", Lm "); p = put_eng(p, Lm, "H");
+        p = put_s(p, ", Cm "); p = put_eng(p, Cm, "F"); k++;
+        p = put_s(ln[k], "C0 "); p = put_eng(p, C0, "F"); p = put_s(p, ", Q "); put_fx(p, Rm > 0 ? ws * Lm / Rm : 0, 0); k++;
+        return k;
+    }
+    }
+    return 0;
+}
+static void draw_measure(void)
+{
+    if (meas_mode == MS_OFF) return;
+    char ln[6][96]; int k = meas_lines(ln);
+    int xm = menu_open ? MX : GX1, y = GY1 - k * RDY - 4;
+    lcd_fill(GX0 + 2, y - 2, xm - GX0 - 4, k * RDY + 4, C_BTN);
+    for (int i = 0; i < k; i++) {
+        int e = ftext(GX0 + 6, y + i * RDY, ln[i], &font_s, 0xFFE0, C_BTN, xm - 4);
+        if (e < xm - 2) lcd_fill(e, y + i * RDY, xm - 2 - e, font_s.h, C_BTN);
+    }
+}
 static uint8_t touch_ok = 1;
 static void draw_status(void)
 {
@@ -1412,7 +1583,7 @@ static void render(void)
     if (mode == MODE_GRID) { if (d & (D_FULL | D_MENU)) draw_grid(); return; }
     if (d & D_FULL) { lcd_fill(0, 0, W, H, C_BG); d |= D_LEGEND | D_GRAPH | D_READOUT | D_STATUS | D_MENU; }
     if (d & D_LEGEND) draw_legend();
-    if (d & D_GRAPH) { draw_axes(); draw_graph(); }
+    if (d & D_GRAPH) { draw_axes(); draw_graph(); draw_measure(); }
     if (d & D_READOUT) draw_readout();
     if (d & D_STATUS) draw_status();
     if (menu_open && (d & D_MENU)) draw_menu();
@@ -1646,6 +1817,32 @@ void ui_command(int argc, char **argv)
     if (streq(c, "marker")) { cmd_marker(argc, argv); if (ui_on && lcd_ready && dirty) render(); return; }
     if (streq(c, "display")) { cmd_display(argc, argv); if (ui_on && lcd_ready && dirty) render(); return; }
     if (streq(c, "ui")) { cmd_ui(argc, argv); return; }
+    if (streq(c, "measure")) {                       /* measure [mode] | rl <ohm> | vf <0-1>: prints the results */
+        float v;
+        if (argc == 3 && streq(argv[1], "rl") && parse_num(argv[2], 1, &v) && v > 0) meas_rl = v;
+        else if (argc == 3 && streq(argv[1], "vf") && parse_num(argv[2], 1, &v) && v >= 0.1f && v <= 1) meas_vf = v;
+        else if (argc == 2) {
+            int m = -1; for (int k = 0; k < MS_N; k++) if (streq(argv[1], meas_name[k])) m = k;
+            if (m < 0) { con_puts("usage: measure [off|lc|cable|shuntlc|seriesl|xtal] | measure rl <ohm> | measure vf <0.1-1>\r\n"); return; }
+            meas_mode = (uint8_t)m;
+        } else if (argc != 1) { con_puts("usage: measure [off|lc|cable|shuntlc|seriesl|xtal] | measure rl <ohm> | measure vf <0.1-1>\r\n"); return; }
+        con_puts("mode "); con_puts(meas_name[meas_mode]); con_puts(" rl "); put_f(meas_rl, 2); con_puts(" vf "); put_f(meas_vf, 3); con_puts("\r\n");
+        if (meas_mode != MS_OFF) {
+            char ln[6][96]; int k = meas_lines(ln);
+            for (int i = 0; i < k; i++) {                /* the screen's symbols in ASCII */
+                for (const char *q = ln[i]; *q; q++) { char ch = *q; if (ch == OHM[0]) con_puts("ohm"); else if (ch == MU[0]) con_putc('u'); else if (ch == DEG[0]) con_puts("deg"); else con_putc(ch); }
+                con_puts("\r\n");
+            }
+        }
+        dirty |= D_GRAPH; if (ui_on && lcd_ready) render(); return;
+    }
+    if (streq(c, "point")) {                         /* diagnostic: point <i> <s11re> <s11im> <s21re> <s21im> sets a raw point (pause first) */
+        int i; float v[4];
+        if (argc != 6 || !decval(argv[1], &i) || i < 0 || i >= sweep_cfg.points) { con_puts("usage: point <index> <s11re> <s11im> <s21re> <s21im>\r\n"); return; }
+        for (int k = 0; k < 4; k++) if (!parse_num(argv[2 + k], 1, &v[k])) { con_puts("usage: point <index> <s11re> <s11im> <s21re> <s21im>\r\n"); return; }
+        pts[i].s11 = c_mk(v[0], v[1]); pts[i].s21 = c_mk(v[2], v[3]); pts[i].f_tuned = sweep_freq(i); pts[i].flags = 0;
+        have_data = 1; con_puts("ok\r\n"); return;
+    }
     if (streq(c, "backlight")) {
         if (argc > 1) pin_set(P_BACKLIGHT, argv[1][0] == '1');
         con_puts(GPIO_ODT(P_BACKLIGHT >> 4) >> (P_BACKLIGHT & 15) & 1 ? "1\r\n" : "0\r\n");

@@ -680,8 +680,8 @@ code.
   range, reset, reset all, apply, enhanced response on/off; config touch
   cal, touch test, version, flip display, bootload (waits for the jog to be
   released: the ROM bootloader hazard). Items not built yet are shown dimmed.
-  Phase 2 (save/recall, save/clear config) is stage 14. Still to come:
-  3) measure modes (L/C match, cable, shunt LC, series L, crystal, Rl);
+  Phase 2 (save/recall, save/clear config) is stage 14, phase 3 (measure)
+  stage 16. Still to come:
   4) transform (time domain) and stored traces (need RAM); 5) SD card
   files are stage 15; 6) brightness (PA5 PWM?), TX power, calibration standard model,
   expert settings.
@@ -797,6 +797,35 @@ AVNA0001.CAL, cleared and loaded gave identical error terms at every point;
 the LOAD menu lists the card's .CAL files. The test files were then
 removed: 4 files and 67 clusters again, PATTERN.BIN and VERIFY.TXT intact.
 
+## Stage 16: MEASURE modes (2026-11-11)
+
+Phase 3 of the stock menu map. The map gives only the names; the maths are
+our own, from circuit models, on the calibrated data. Results are drawn as
+a block over the graph and printed by `measure`; Rl is the termination the
+S21 modes assume, VF the cable's velocity factor (set here until a
+TRANSFORM menu exists).
+
+| Mode | From | Gives |
+|---|---|---|
+| L/C MATCH | S11 at the active marker, to the port impedance | up to four L networks (shunt or series element at the load), as L and C values |
+| CABLE S11 | a cable open or shorted at the far end | lambda/4 frequency (unwrapped phase reaching -180 or 0), one-way delay = 1/(4 f), length at VF, Z0 from the reactance near lambda/8, loss at lambda/4 |
+| SHUNT LC | S21 of a series RLC across the line | R at the notch, L and C solved from X = wL - 1/(wC) either side, f0 = 1/(2 pi sqrt(LC)), Q |
+| SERIES L | S21 of a series element, at the marker | L, R, Q; self-resonance where X crosses zero |
+| XTAL | S21 across fs and fp | fs and fp (parabolic peaks), Rm at fs, C0 from the admittance at the sweep start (B = wC0 [1 + r/(1 - (f/fs)^2)], r = (fp/fs)^2 - 1), Cm = r C0, Lm, Q |
+
+Checked with exact model responses written into the sweep by the `point`
+diagnostic (paused): a 20+j30 ohm load at 7.15 MHz gave four networks,
+each of which transforms it to 50.00 ohm; a lossless 75 ohm stub with 5 ns
+one way gave lambda/4 50.000 MHz, 5.000 ns, 0.989 m at VF 0.66 and Z0 75.0
+ohm, open or shorted; R 2 ohm, 1 uH, 100 pF across the line gave f0
+15.9155 MHz, 2.000 ohm, 1000.0 nH, 100.0 pF, Q 50.0; 1 uH + 0.5 ohm in
+series gave 1.000 uH, 0.500 ohm, Q 346.3 (at 27.55 MHz); a crystal (10 ohm,
+10 mH, fs 10 MHz, C0 4 pF) gave fs 9.999996 MHz, fp 10.031616 MHz (model
+10.031613), Rm 10.00 ohm, Lm 10.00 mH, Cm 25.32 fF, C0 3.997 pF, Q 62855.
+Two first versions were wrong and fixed: the cable delay from the phase
+slope (biased when the line is not 50 ohm) and the notch frequency from a
+parabola (skewed); both now come from exact relations.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -837,5 +866,7 @@ recording (2026-11-10).
 - Stage 13: microSD on SPI1 with chip select PB9; FAT32 read and write
   checked against the maintainer's test card.
 - Stage 14: save/recall slots 0-6 and config in flash; one menu font size.
-- Stage 15: SD CARD menu: S1P/S2P Touchstone, calibration files and LOAD.
-  Next: measure modes, transform and stored traces. Next: touch map, settings and calibration in flash.
+- Stage 15: SD CARD menu: S1P/S2P Touchstone, BMP screenshots, calibration
+  files and LOAD.
+- Stage 16: MEASURE modes (L/C match, cable, shunt LC, series L, crystal).
+  Next: transform and stored traces (RAM), brightness, TX power, cal kit. Next: touch map, settings and calibration in flash.

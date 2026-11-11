@@ -647,6 +647,66 @@ static void cmd_adc0(int n)
     con_puts("\r\nend\r\n");
 }
 
+/* adc2 <n>: alternate conversions of PA0 (ch0) and PB0 (ch8), n pairs, as hex
+ * "aaabbb"; each PB0 sample follows its PA0 sample by one conversion. */
+static void cmd_adc2(int n)
+{
+    if (n < 16 || n > 4096) { con_puts("usage: adc2 <16..4096>\r\n"); return; }
+    ADC_SPT1 = 0; ADC_SPT2 = 0;
+    ADC_CTRL2 = (7u << 17) | (1u << 20) | 1u;
+    delay(5000);
+    ADC_CTRL2 |= 1u << 3; for (uint32_t t = 0; (ADC_CTRL2 & 8) && t < 100000; t++) ;
+    ADC_CTRL2 |= 1u << 2; for (uint32_t t = 0; (ADC_CTRL2 & 4) && t < 100000; t++) ;
+    pin_cfg(0x00, 0); pin_cfg(0x10, 0);
+    ADC_OSQ1 = 0;
+    uint32_t t0 = DWT_CYCCNT;
+    for (int i = 0; i < 2 * n; i++) {
+        ADC_OSQ3 = (i & 1) ? 8 : 0;
+        ADC_STS = 0; ADC_CTRL2 |= 1u << 22;
+        while (!(ADC_STS & 2)) ;
+        adc_buf[i] = ADC_ODT & 0xFFF;
+    }
+    uint32_t cyc = DWT_CYCCNT - t0;
+    ADC_CTRL2 = 0; pin_release(0x10);
+    con_puts("pair_rate_hz "); con_dec((uint32_t)((uint64_t)n * 48000000ull / cyc));
+    con_puts(" lag_ns "); con_dec((uint32_t)((uint64_t)cyc * 1000ull / 48ull / (2u * n))); con_puts("\r\n");
+    for (int i = 0; i < 2 * n; i++) { con_hex(adc_buf[i], 3); if ((i & 31) == 31) con_puts("\r\n"); }
+    con_puts("\r\nend\r\n");
+}
+
+static void pp_out(uint8_t pp, int v);
+static void pin_set(uint8_t pp, int v);
+/* meas3 <n> <settle>: one continuous PA0 capture in three segments of
+ * settle + n samples: reference (PA6 high, PA7 low), port 1 (PA6 low, PA7
+ * low), port 2 (PA6 low, PA7 high). Pins switch between conversions at fixed
+ * sample indices, so the host can relate the segments' IF phases. */
+static void cmd_meas3(int n, int settle)
+{
+    int seg = n + settle;
+    if (n < 64 || settle < 0 || 3 * seg > 8192) { con_puts("usage: meas3 <n> <settle> (3*(n+settle) <= 8192)\r\n"); return; }
+    static const uint8_t st[3][2] = { {1, 0}, {0, 0}, {0, 1} };   /* PA6, PA7 */
+    pp_out(0x06, st[0][0]); pp_out(0x07, st[0][1]); delay(2000);
+    ADC_SPT1 = 0; ADC_SPT2 = 0;
+    ADC_CTRL2 = (7u << 17) | (1u << 20) | 1u;
+    delay(5000);
+    ADC_CTRL2 |= 1u << 3; for (uint32_t t = 0; (ADC_CTRL2 & 8) && t < 100000; t++) ;
+    ADC_CTRL2 |= 1u << 2; for (uint32_t t = 0; (ADC_CTRL2 & 4) && t < 100000; t++) ;
+    pin_cfg(0x00, 0); ADC_OSQ1 = 0; ADC_OSQ3 = 0;
+    ADC_CTRL2 |= 1u << 1; ADC_CTRL2 |= 1u << 22;
+    uint32_t t0 = DWT_CYCCNT;
+    for (int i = 0; i < 3 * seg; i++) {
+        if (i && i % seg == 0) { int k = i / seg; pin_set(0x06, st[k][0]); pin_set(0x07, st[k][1]); }
+        while (!(ADC_STS & 2)) ;
+        adc_buf[i] = ADC_ODT & 0xFFF;
+    }
+    uint32_t cyc = DWT_CYCCNT - t0;
+    ADC_CTRL2 = 0;
+    con_puts("rate_hz "); con_dec((uint32_t)((uint64_t)3 * seg * 48000000ull / cyc));
+    con_puts(" seg "); con_dec(seg); con_puts(" settle "); con_dec(settle); con_puts("\r\n");
+    for (int i = 0; i < 3 * seg; i++) { con_hex(adc_buf[i], 3); if ((i & 31) == 31) con_puts("\r\n"); }
+    con_puts("\r\nend\r\n");
+}
+
 static void cmd_ms5351(void)
 {
     static const struct { uint8_t reg, n; const char *name; } blocks[] = {
@@ -1021,6 +1081,12 @@ static void command(char *line)
         cmd_i2cscan();
     } else if (line[0] == 'm' && line[1] == 's' && line[2] == 'w' && line[3] == ' ') {
         cmd_msw(line + 4);
+    } else if (line[0] == 'm' && line[1] == 'e' && line[2] == 'a' && line[3] == 's' && line[4] == '3' && line[5] == ' ') {
+        const char *q = line + 6; int v[2] = {0}, nv = 0;
+        while (*q && nv < 2) { while (*q == ' ') q++; int x = 0, any = 0; while (*q >= '0' && *q <= '9') { x = x * 10 + (*q++ - '0'); any = 1; } if (!any) break; v[nv++] = x; }
+        if (nv == 2) cmd_meas3(v[0], v[1]); else con_puts("usage: meas3 <n> <settle>\r\n");
+    } else if (prefix_num(line, "adc2", &(int){0})) {
+        int k = 0; prefix_num(line, "adc2", &k); cmd_adc2(k);
     } else if (prefix_num(line, "adc0", &(int){0})) {
         int k = 0; prefix_num(line, "adc0", &k); cmd_adc0(k);
     } else if (streq(line, "ms5351")) {
@@ -1090,7 +1156,7 @@ static void command(char *line)
     } else if (streq(line, "jog")) {
         cmd_jog();
     } else if (streq(line, "help")) {
-        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | synthrf [k] | rfprog c d le n | rfrelease | pin c 0|1|r | msw reg v.. | mx hex.. | adc0 n | bootloader | reset | help\r\n");
+        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | synthrf [k] | rfprog c d le n | rfrelease | pin c 0|1|r | msw reg v.. | mx hex.. | adc0 n | adc2 n | meas3 n settle | bootloader | reset | help\r\n");
     } else {
         con_puts("error: unknown command; help lists them\r\n");
     }

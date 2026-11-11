@@ -301,6 +301,45 @@ band-select divider 480 so the VAS clock stays under 50 kHz). Thru connected.
 | IF gain | PB14, PB15 (low = less gain) |
 | IF | PA0, ADC channel 0 (biased at VDDA/2); 1.714 MS/s measured |
 
+## Stage 5: first sweep from our own firmware (2026-11-10)
+
+**The reference channel is a switch state:** PA6 high (stimulus cut from port 1)
+with PA7 low routes the stimulus into an internal reference path (1361 counts
+at 9.6 MHz with the thru; PA6 high + PA7 high gives nothing). PB0 (ADC ch8)
+carries the same IF as PA0 at a fixed ratio and phase (1.039 at 12.8 deg on
+the port 2 channel), so it is a second tap of the same path, not a reference.
+
+**Phase coherence:** stimulus and LO start at a random relative phase after
+each retune, so only port / reference ratios are repeatable, and only if the
+three are related in time. `meas3 <n> <settle>` captures reference, port 1
+and port 2 as one continuous PA0 run (1.714 MS/s), switching PA6/PA7 at fixed
+sample indices; the host fits the IF frequency from the reference segment
+(the MCU clock is ~0.1% off the TCXO: the IF reads ~11 985 Hz for 12 000 Hz)
+and reads all three phases against sample zero. Across three retunes the raw
+ratios then repeat within ~0.3% in magnitude and a few degrees in phase.
+
+**Sweep (host prototype, `host/prototype.py`):** below 100 MHz the MS5351M
+(CLK2 stimulus on PLL A, CLK0 LO on PLL B, same even divider, fractional PLLs
+for an exact 12 kHz offset, 2 mA drive); from 100 MHz the MAX2871 pair (output
+divider keeping the VCO at 3-6 GHz, output power 0); IF gain pins low. 14
+points 1 MHz-1 GHz in 1.6 s; raw S21 continuous across the 100 MHz crossover.
+
+**Calibrated with our own sweeps:** open, short, load and thru (60 log-spaced
+points, 1 MHz-1 GHz, 2 averages) solved with the bench's SOLT math. Checks:
+
+| Check | Result | Stock firmware, same caps |
+|---|---|---|
+| Fresh short, corrected | 0 dB +/- 0.33 dB, 180 +/- 4.2 deg | +/- 0.009 dB, +/- 0.06 deg |
+| Fresh thru, corrected, 1-100 MHz | within +/- 0.09 dB | within +/- 0.015 dB |
+| Fresh thru, corrected, 100 MHz-1 GHz | within +/- 0.24 dB | |
+| Fresh thru phase | within +/- 7 deg | within +/- 0.07 deg |
+
+It measures correctly, end to end, on our firmware. Repeatability is the gap.
+Likely causes, to work on next: ~1.2 ms of integration per segment (14 IF
+cycles) and 2 averages; 200-sample settling after each switch; the MCU timed
+from its own oscillator rather than the 24 MHz TCXO; the low-band port 2
+segment near clipping. Then: the sweep loop on the device, and the console API.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -322,5 +361,5 @@ recording (2026-11-10).
 - Stage 2a (I2C scan): done, MS5351M at 0x60 on PB10/PB11.
 - Stage 2c: touch, display, backlight and jog mapped; MAX2871 not found by
   MUX/LD response.
-- Stage 4: high band mapped (second MAX2871 on LE PA4 is the LO). The
-  measurement chain is complete. Next: a first sweep from our own firmware.
+- Stage 5: first calibrated sweep from our own firmware (1 MHz-1 GHz).
+  Next: repeatability (integration, TCXO timing), on-device sweep, console API.

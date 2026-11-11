@@ -591,6 +591,25 @@ higher there than at calibration time. A reboot changed nothing (within
 drift in the low-frequency path; a recalibration close to the measurement
 is the remedy below 1.5 MHz for now.
 
+**The low-band drift against the MCU's temperature sensor** (`temp`, ADC1
+channel 16, reported in mV; it rises as the chip warms). Raw thru, 50 kHz-2
+MHz, every 20-30 s for 34 min with the thru left on: 5 min baseline, 4 min
+of high-band sweeps (3-6 GHz) to warm the board, 25 min cooling.
+
+| Phase | Sensor | Raw S21 at 0.3 MHz, from the start |
+|---|---|---|
+| Baseline (just after a reflash) | +3 mV (the MCU warming after reboot) | within +/-0.003 dB |
+| Heating, 4 min | +5.5 mV | +0.0235 dB |
+| Cooling, 25 min | settled about 2.5 mV above the start | down through zero to -0.008 dB, still falling |
+
+The sensor moved while the low band did not (after the reboot), and the
+low band kept moving after the sensor settled: the MCU sensor is not a
+proxy for what drives it (the analog front end's or the room's temperature).
+No correction is built on it. At 1 MHz the same run moved 0.0024 dB; at
+2 MHz 0.004 dB. Rule: below 1.5 MHz expect +/-0.01 dB within about 20 min
+of a calibration with the high band unused and up to 0.025 dB over hours or
+after high-band use; recalibrate close to measurements that need better.
+
 **USB: a reply ending on a full packet.** The first check sweep hung waiting
 for the prompt. Linux cdc-acm queues 128-byte bulk reads, and a reply whose
 last packet was exactly 64 bytes left the read open until the next reply
@@ -609,6 +628,38 @@ of the open, short and load (all three leave port 2 the same), which cuts
 the noise that term adds to every corrected S21 by 4.8 dB at no cost in
 time. The device's own `cal` still takes it from the load only (three
 stored arrays would cost 6 KB of RAM).
+
+## Stage 12: stock-style UI (2026-11-11)
+
+Asked for by the maintainer: multi-trace like stock with a Smith chart,
+touch menus with the jog as a fallback, menus for display, sweep,
+calibration and markers. Our own design, not modelled on any firmware's
+code.
+
+- Four traces, each S11 or S21 in log magnitude, phase, SWR, Smith, linear,
+  R, X or \|Z\| (defaults: S11 and S21 log magnitude, S11 Smith, S21
+  phase); the Smith chart is drawn over the rectangular grid. Values are
+  computed from the stored points (calibration applied) as each 32-column
+  strip is drawn: nothing per trace in RAM (the UI adds 460 bytes).
+- Smith grid: unit circle, r = 0.2-5 circles, x = +/-0.2-5 arcs, each found
+  by solving its crossings with every column and row of a strip (no gaps).
+- Four markers: jog, point index, min SWR, max, min, marker to centre.
+  Readout: frequency, Z = R+jX, SWR, the equivalent L or C, S11 and S21.
+- Menus as an 84-96 px column over the graph's right side; keypad for
+  start/stop/centre/span/scale/reference (frequencies parsed in integer Hz);
+  band presets 160 m-6 m and the 50 kHz-55.05 MHz default; on-device SOLT
+  with the standards marked as measured and a second tap to reset.
+- Jog: with the menu closed, left/right move the marker (repeat when held)
+  and a double click right opens the menu; in a menu, a click moves the
+  highlight, holding right (700 ms) selects, holding left goes back.
+- Touch: HR2046 pen line (PB8) and pressure, four-sample average; mapped by
+  a three-cross TOUCH CAL (which raw channel is screen x is found from the
+  taps). Taps are ignored until then; the map lives in RAM until settings
+  go to flash.
+- Console mirror: `trace`, `marker`, `ui state|tap|jog`, `touch cal|map`.
+  `lcd capture` redraws the screen while streaming every window's pixels
+  as RGB565 runs; `host/screenshot.py` rebuilds a PNG (480x320 in about 2 s).
+  The menus, keypad and band grid were driven and checked this way.
 
 ## Recovery
 
@@ -641,4 +692,7 @@ recording (2026-11-10).
   found to be the noise floor; low-band temperature drift below 1.5 MHz.
   Next: saved settings and calibration in flash, touch input, an open/short
   level check above 1 GHz, the near-integer MAX2871 states, the low-band
-  drift (the MCU's temperature sensor).
+  drift (characterised: not tracked by the MCU sensor; recalibrate near the
+  measurement below 1.5 MHz).
+- Stage 12: stock-style UI with Smith chart, menus, touch and jog, console
+  mirror and screen capture. Next: touch map, settings and calibration in flash.

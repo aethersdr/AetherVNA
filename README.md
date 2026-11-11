@@ -53,11 +53,12 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 5: first calibrated sweep from our own firmware, 1 MHz-1 GHz (thru +/-0.09 dB LF, +/-0.24 dB HF) | Done |
 | 6: repeatability: TCXO-clocked MCU, coherent sampling, Hann window; calibrated thru +/-0.006 dB, short +/-0.0046 dB (stock: +/-0.015 / +/-0.009) | Done |
 | 7: firmware proper (`fw/`): sweep, console API and SOLT calibration on the device, 50 kHz-6.3 GHz; 101 points 1 MHz-1 GHz in 1.9 s repeat within 0.005 dB | Done |
-| 8: display UI (test card, S11/S21 log-magnitude traces, jog marker, status), starts at power-on | Built; orientation and colours not yet confirmed by eye |
+| 8: display UI (test card, S11/S21 log-magnitude traces, jog marker, status), starts at power-on | Done; seen working by the maintainer |
 | 9: settling, averaging and detector tuned for accuracy: 101 points 1 MHz-1 GHz in 2.6 s within 0.003 dB, 401 points to 6.3 GHz in 15.5 s within 0.03 dB | Done |
 | 10: HF focus: default sweep 50 kHz-55 MHz, synthesizers off between host sweeps, `info` reports how long the high band has been off (its heat moves HF readings) | Done |
 | 11: first full calibration and checks on the HF plan; USB replies ending on a full packet end with a zero-length packet (a scan could hang) | Done |
-| Later: saved settings and calibration in flash, touch input, Smith chart, open/short level check above 1 GHz | Planned |
+| 12: stock-style UI: four traces (log mag, phase, SWR, Smith, linear, R, X, \|Z\|), Smith chart over the grid, four markers with search, menus (display, marker, sweep with keypad and HF band presets, on-device calibration), touch and jog input, all mirrored on the console; `lcd capture` and `host/screenshot.py` for checking the screen over USB | Built and driven over the console; touch calibration needs a person |
+| Later: saved settings, calibration and touch map in flash, open/short level check above 1 GHz | Planned |
 
 ## Build and flash
 
@@ -84,10 +85,19 @@ commands follow NanoVNA-D so existing tools can drive it:
 | `cal get <std\|terms>`, `cal put <std> <i> <4 values>` | read standards and error terms; restore a saved calibration |
 | `flags` | per point: tuned frequency, reference level, ok/clip/lowref/range |
 | `gain [auto\|0..3]`, `avg [auto\|n]`, `retune [0\|1]`, `bracket [0\|1]`, `settle`, `tsettle` | measurement settings |
-| `info`, `version`, `vbat`, `jog`, `touch` | identity, state, battery, inputs |
-| `lcd [init\|test\|ui\|off\|madctl <hex>\|inv 0\|1\|marker <i>\|status]`, `backlight` | display |
+| `info`, `version`, `vbat`, `temp`, `jog`, `touch` | identity, state, battery, MCU temperature sensor (mV), inputs |
+| `trace [1-4 [on\|off\|s11\|s21\|<format>\|scale <v>\|ref <v>\|refpos <d>\|auto\|active]]` | the screen's traces; formats `logmag phase swr smith linear r x z` |
+| `marker [1-4 [on\|off\|active\|<index>\|minswr\|max\|min]]` | the screen's markers |
+| `ui [state\|tap <x> <y>\|jog l\|r\|L\|R\|rr\|redraw]` | menu state; taps and jog clicks/holds as if by hand |
+| `touch [cal\|map [ax bx ay by swap]]` | raw reading, on-screen touch calibration, the mapping |
+| `lcd [init\|test\|ui\|off\|capture\|madctl <hex>\|inv 0\|1\|marker <i>\|status]`, `backlight` | display; `capture` streams the redrawn screen (`host/screenshot.py` makes a PNG) |
 | `raw <freq>`, `tune`, `ms`, `mx`, `pin`, `clk` | diagnostics |
 | `bootloader`, `reset` | refused while the jog is pressed |
+
+On the device: tap the screen (or double-click the jog right) for the menu;
+with a menu open, jog clicks move the highlight, holding right selects and
+holding left goes back. Touch needs TOUCH CAL once per power-on until the
+mapping is saved in flash.
 
 With the screen running, host-driven sweeps are slower (it redraws between
 commands); `lcd off` or `pause` gives the full speed.

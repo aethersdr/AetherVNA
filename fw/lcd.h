@@ -1,0 +1,32 @@
+/* AetherVNA firmware: display panel, text, screen capture, touch controller.
+ * Copyright (C) 2026 the AetherSDR project. SPDX-License-Identifier: GPL-3.0-or-later */
+#pragma once
+#include <stdint.h>
+
+#define W 480
+#define H 320
+
+/* No framebuffer: drawing goes through adc_buf, between captures. */
+#define BUF ((uint16_t *)adc_buf)
+#define BUF_PX (4 * (SEG_N + 300))
+
+extern uint8_t lcd_ready, madctl, inverted;
+void lcd_init(void);
+void lcd_off(void);
+void lcd_cmd(uint8_t c, const uint8_t *d, int n);
+void lcd_fill(int x, int y, int w, int h, uint16_t c);
+void lcd_blit(int x, int y, int w, int h, const uint16_t *px);
+void lcd_capture(int on);
+void lcd_test_card(void);
+
+int  text(int x, int y, const char *s, uint16_t fg, uint16_t bg, int sc);   /* returns x after */
+int  text_w(const char *s, int sc);
+
+char *put_s(char *p, const char *s);
+char *put_u(char *p, uint64_t v, int min_digits);
+char *put_fx(char *p, float v, int dec);
+char *put_sfx(char *p, float v, int dec);
+char *put_freq(char *p, uint64_t f);
+
+uint16_t tsc_read(uint8_t cmd);              /* TSC2046 command byte, 12-bit result */
+uint16_t vbat_counts(void);

@@ -230,7 +230,8 @@ uint16_t tsc_read(uint8_t cmd)
 uint16_t vbat_counts(void) { uint32_t s = 0; for (int i = 0; i < 4; i++) s += tsc_read(0xA4); return s / 4; }
 /* VBAT input divides by 4, single-ended against the supply. Scale set so
  * that 1299 counts reads 4.07 V, as stock reported in the same state (NOTES.md). */
-float vbat_volts(void) { return vbat_counts() * (4.07f / 1299.0f); }
+int16_t vbat_offset_mv;                              /* EXPERT > VBAT OFFSET */
+float vbat_volts(void) { return vbat_counts() * (4.07f / 1299.0f) + vbat_offset_mv * 0.001f; }
 
 /* ---------- test card ---------- */
 void lcd_test_card(void)

@@ -18,6 +18,7 @@ void ui_redraw_full(void);
 void ui_render_screen(void);
 void ui_td_invalidate(void);
 int  sd_save_screen(int autoname, char *name);
+int  sd_dump_fw(char *name);
 /* store.c */
 int  store_valid(int n);
 int  store_save(int n);
@@ -31,3 +32,11 @@ int  sd_save_touchstone(int two_port, int autoname, char *name);   /* name: 13 b
 int  sd_save_cal(int autoname, char *name);
 int  sd_load_cal(const char *name);
 int  sd_list(const char *ext, char names[][13], int max);
+/* rtc.c */
+int  rtc_start(void);                        /* 1 running, 0 no 32 kHz crystal */
+int  rtc_is_set(void);
+uint32_t rtc_get(void);                      /* seconds since 2000-01-01 */
+int  rtc_set(uint32_t s);
+uint32_t rtc_from_date(int y, int mo, int d, int h, int mi, int s);
+void rtc_to_date(uint32_t t, int *y, int *mo, int *d, int *h, int *mi, int *s);
+void rtc_fat(uint16_t *date, uint16_t *time);

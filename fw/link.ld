@@ -22,5 +22,6 @@ SECTIONS
   _estack = ORIGIN(ram) + LENGTH(ram);
   ASSERT(_estack - _end_static >= 8K, "less than 8 KB of RAM left for the stack")
   /* Saved settings and calibrations live at 0x08050000-0x0807FFFF (store.c). */
-  ASSERT(LOADADDR(.data) + SIZEOF(.data) <= 0x08050000, "the image would overlap the saved settings")
+  _image_end = LOADADDR(.data) + SIZEOF(.data);
+  ASSERT(_image_end <= 0x08050000, "the image would overlap the saved settings")
 }

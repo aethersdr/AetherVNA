@@ -12,7 +12,7 @@
 #include "hw.h"
 #include "vna.h"
 
-sweep_cfg_t sweep_cfg = { 50000ull, 55050000ull, 101, 200, AVG_AUTO, GAIN_AUTO, 0, 1, 0 }   /* HF: never wakes the MAX2871s; lowest stimulus level */;
+sweep_cfg_t sweep_cfg = { 50000ull, 55050000ull, 101, 200, AVG_AUTO, GAIN_AUTO, 0, 1, 0, BAND_SPLIT }   /* HF: never wakes the MAX2871s; lowest stimulus level */;
 point_t pts[POINTS_MAX];
 volatile uint8_t sweep_running;
 uint32_t sweep_count;
@@ -223,7 +223,7 @@ int avg_for(uint64_t f)
 int gain_for(uint64_t f)
 {
     if (sweep_cfg.gain != GAIN_AUTO) return sweep_cfg.gain & 3;
-    if (f < BAND_SPLIT) return 0;                   /* x1 */
+    if (f < sweep_cfg.split) return 0;              /* x1 */
     if (f < 2800000000ull) return 2;                /* x1.9 */
     if (f < 5300000000ull) return 1;                /* x3 */
     return 3;                                       /* x8 */
@@ -234,10 +234,13 @@ static void gain_set(int g) { pin_set(P_GAIN_A, g & 1); pin_set(P_GAIN_B, g >> 1
  * more (NOTES.md, stage 10). Tools read how long it has been off from `info`. */
 uint8_t hb_used;
 uint32_t hb_last_ms;
+int32_t tcxo_ppb;
 int tune(uint64_t f, uint64_t *tuned)
 {
     if (f < FREQ_MIN || f > FREQ_MAX) return -1;
-    int b = f >= BAND_SPLIT;
+    int b = f >= sweep_cfg.split;
+    uint64_t fw = f;                                 /* the word's frequency, in TCXO terms */
+    if (tcxo_ppb) fw = (uint64_t)((int64_t)f - (int64_t)f * tcxo_ppb / 1000000000LL);
     if (b) { hb_used = 1; hb_last_ms = ms_ticks; }
     if (b != band) {
         if (b) { ms_outputs_off(); mx_init(); pin_set(P_BAND, 1); }
@@ -247,7 +250,8 @@ int tune(uint64_t f, uint64_t *tuned)
         delay_us(SETTLE_BAND_US);
     }
     gain_set(gain_for(f));
-    int r = b ? mx_tune(f, tuned) : ms_tune(f, tuned);
+    int r = b ? mx_tune(fw, tuned) : ms_tune(fw, tuned);
+    if (tcxo_ppb && r == 0) { int64_t q = (int64_t)*tuned * tcxo_ppb; q += q >= 0 ? 500000000LL : -500000000LL; *tuned = (uint64_t)((int64_t)*tuned + q / 1000000000LL); }   /* what actually comes out, rounded */
     delay_us((b ? SETTLE_HIGH_US : SETTLE_LOW_US) + tune_settle_us);
     return r;
 }
@@ -437,7 +441,7 @@ static uint8_t terms_ok;
 static int same_cfg(const sweep_cfg_t *a, const sweep_cfg_t *b)
 {
     return a->start == b->start && a->stop == b->stop && a->points == b->points && a->gain == b->gain && a->bracket == b->bracket
-        && a->txpower == b->txpower;   /* averaging changes noise, not the expected value */
+        && a->txpower == b->txpower && a->split == b->split;   /* averaging changes noise, not the expected value */
 }
 int cal_valid(void)
 {

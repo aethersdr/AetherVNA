@@ -22,7 +22,11 @@ typedef struct {
     uint8_t  bracket;                    /* 1: second reference after port 2, interpolated */
     uint8_t  retune;                     /* 1: retune before every averaged capture */
     uint8_t  txpower;                    /* stimulus level 0-3: MS5351M 2/4/6/8 mA, MAX2871 -4/-1/+2/+5 dBm */
+    uint32_t split;                      /* Hz: MS5351M below, MAX2871 from here (50-112.5 MHz; 100 MHz default) */
 } sweep_cfg_t;
+#define SPLIT_MIN 50000000u
+#define SPLIT_MAX 112500000u                 /* the MS5351M's top with even dividers >= 8 on a 900 MHz PLL */
+extern int32_t tcxo_ppb;                 /* TCXO error: words are computed for f / (1 + ppb), frequencies reported as tuned */
 #define GAIN_AUTO 0xFF
 #define AVG_AUTO 0
 int  avg_for(uint64_t f);

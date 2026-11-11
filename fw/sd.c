@@ -372,7 +372,7 @@ static int fat_write_small(const char *name, const char *text)
         for (int k = 0; k < 32; k++) e[k] = 0;
         for (int k = 0; k < 11; k++) e[k] = (uint8_t)n11[k];
         e[11] = 0x20;                                /* archive */
-        uint16_t date = (uint16_t)(((2026 - 1980) << 9) | (11 << 5) | 11), time = 12 << 11;   /* no clock: the date of this code */
+        uint16_t date, time; rtc_fat(&date, &time);
         wr16(e + 14, time); wr16(e + 16, date); wr16(e + 18, date); wr16(e + 22, time); wr16(e + 24, date);
         wr16(e + 20, (uint16_t)(clus >> 16)); wr16(e + 26, (uint16_t)clus);
     }
@@ -456,7 +456,7 @@ static int fw_close(fw_t *f, const char *name)
     for (int k = 0; k < 32; k++) e[k] = 0;
     for (int k = 0; k < 11; k++) e[k] = (uint8_t)n11[k];
     e[11] = 0x20;
-    uint16_t date = (uint16_t)(((2026 - 1980) << 9) | (11 << 5) | 11), time = 12 << 11;
+    uint16_t date, time; rtc_fat(&date, &time);
     wr16(e + 14, time); wr16(e + 16, date); wr16(e + 18, date); wr16(e + 22, time); wr16(e + 24, date);
     wr16(e + 20, (uint16_t)(f->first >> 16)); wr16(e + 26, (uint16_t)f->first);
     wr32(e + 28, f->size);
@@ -739,6 +739,21 @@ int sd_save_screen(int autoname, char *name)
     return fw_close(&f, name);
 }
 
+/* DUMP FIRMWARE: our own image (0x08004000 to its end), never the bootloader below it. */
+extern const uint8_t _image_end[];
+int sd_dump_fw(char *name)
+{
+    sd_ok = 0;
+    if (fat_mount(0)) return -1;
+    const char *nm = "AVNAFW.BIN"; int k = 0; while (nm[k]) { name[k] = nm[k]; k++; } name[k] = 0;
+    fat_delete(name);
+    fw_t f; if (fw_open(&f)) return -2;
+    const uint8_t *p = (const uint8_t *)0x08004000u;
+    uint32_t n = (uint32_t)(_image_end - p);
+    for (uint32_t i = 0; i < n && !f.err; i += 256) { fw_bytes(&f, p + i, n - i < 256 ? n - i : 256); service(); }
+    return fw_close(&f, name);
+}
+
 /* ---------- console ---------- */
 static int streq(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return *a == *b; }
 /* Rewrites one sector of a cluster with PATTERN.BIN's formula (repair aid). */
@@ -806,7 +821,8 @@ void sd_command(int argc, char **argv)
         if (streq(argv[2], "s1p") || streq(argv[2], "s2p")) r = sd_save_touchstone(argv[2][1] == '2', autoname, name);
         else if (streq(argv[2], "cal")) r = sd_save_cal(autoname, name);
         else if (streq(argv[2], "bmp")) r = sd_save_screen(autoname, name);
-        else { con_puts("usage: sd save s1p|s2p|cal|bmp [fixed]\r\n"); return; }
+        else if (streq(argv[2], "fw")) r = sd_dump_fw(name);
+        else { con_puts("usage: sd save s1p|s2p|cal|bmp|fw [fixed]\r\n"); return; }
         if (r == -3) { con_puts("error: no calibration\r\n"); return; }
         if (r) { con_puts("error: "); con_dec(r); con_puts("\r\n"); return; }
         con_puts("saved "); con_puts(name); con_puts("\r\n"); return;

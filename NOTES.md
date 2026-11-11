@@ -928,6 +928,37 @@ behind 25 ps, load 50 ohm + 100 pH, thru 50 ps) and a 25 ohm + 1 nH DUT,
 100 MHz-3 GHz: with that kit entered, R 25.0000 ohm and X = wL to 0.0001
 ohm at every point; with the ideal kit, up to 3.0 ohm and 22.9 ohm off.
 
+## Stage 21: expert settings (2026-11-11)
+
+CONFIG > EXPERT: SPLIT, TCXO, VBAT OFFS, REMEMBER, SAMPLES, SET TIME, FLIP,
+>MORE (DUMP FW, CLEAR CFG, >BOOTLOAD). Console: `split`, `tcxo`, `time`,
+`sd save fw`. Kept by SAVE CONFIG: TCXO trim, VBAT offset, REMEMBER, the
+cal kit, the touch map, flip.
+
+- SPLIT (stock: THRESHOLD): where the MAX2871 pair takes over, 50-112.5
+  MHz (112.5 is the MS5351M's top with even dividers >= 8 on a 900 MHz PLL);
+  part of the sweep settings, so of calibration validity; the IF gain
+  follows it. Thru 95-112 MHz on each path: all points ok, median sd 0.0006
+  dB (MAX2871) and 0.0012 dB (MS5351M); raw S21 differs 0.2-0.4 dB between
+  the paths, which is what the calibration takes out.
+- TCXO: the measured TCXO frequency (or ppb); words are computed for
+  f / (1 + ppb) and the tuned frequency reported as what comes out
+  (rounded). The IF and ADC share the TCXO, so the detector is unaffected.
+  +1 ppm: a 10 MHz request reports 10,000,000 Hz.
+- REMEMBER: slot 0 follows the state, written when a checksum of what a
+  slot holds has changed and then stayed for 20 s (console polling cannot
+  wear the flash).
+- SAMPLES: one capture at the active marker, 6600 conversions drawn as
+  per-column ranges with the reference, port 1 and port 2 segments; with
+  the thru on, port 1 is near flat and port 2 large, as they should be.
+- SET TIME: the RTC runs on the 32.768 kHz crystal (it started); seconds
+  since 2000 in the battery-powered domain, which kept time across a reset
+  (to the second against the host). SD files get the date and time.
+  Whether it survives power-off depends on the VBAT pin: to check.
+- DUMP FW: our image, 0x08004000 to its end (link.ld `_image_end`), to
+  AVNAFW.BIN; read back byte-identical to the built image (152,532 bytes).
+  Never the bootloader below it.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch

@@ -182,7 +182,8 @@ static void cmd_help(void)
              "  frequencies | cal [open|short|load|thru|isoln|done|on|off|reset|enhanced [0|1]] | cal get <std|terms> |\r\n"
              "  calkit [ideal|open ..|short ..|load ..|thru ..] |\r\n"
              "  cal put <std> <i> <s11re> <s11im> <s21re> <s21im> | pause | resume | flags |\r\n"
-             "  settle [samples] | tsettle [us] | avg [auto|n] | gain [auto|0..3] | bracket [0|1] | retune [0|1] | power [0-3]\r\n"
+             "  settle [samples] | tsettle [us] | avg [auto|n] | gain [auto|0..3] | bracket [0|1] | retune [0|1] | power [0-3] |\r\n"
+             "  split [Hz] | tcxo [Hz|ppb <n>] | time [YYYYMMDDhhmmss] |\r\n"
              "display: trace [1-4 [...]] (trace 1 x for the formats) | marker [1-8 [...]|delta|tracking|jogstep] |\r\n"
              "  display [edelay|s21offset|portz|gridvalues|dotgrid|flip] | measure [off|lc|cable|shuntlc|seriesl|xtal|rl <ohm>|vf <v>] |\r\n"
              "  transform [on|off|impulse|step|bandpass|window min|normal|max] |\r\n"
@@ -314,6 +315,41 @@ void console_line(char *line)
     }
     else if (streq(c, "lcd") || streq(c, "backlight") || streq(c, "touch") || streq(c, "trace") || streq(c, "marker") || streq(c, "display") || streq(c, "ui") || streq(c, "measure") || streq(c, "point") || streq(c, "transform") || streq(c, "calkit")) ui_command(argc_, argv_);
     else if (streq(c, "sd")) sd_command(argc_, argv_);
+    else if (streq(c, "time")) {                     /* time [YYYYMMDDhhmmss] */
+        if (argc_ == 2) {
+            const char *s = argv_[1]; int v[14], n = 0;
+            for (; *s && n < 14; s++) { if (*s < '0' || *s > '9') break; v[n++] = *s - '0'; }
+            if (n != 14 || *s) { con_puts("usage: time [YYYYMMDDhhmmss]\r\n"); return; }
+            int y = v[0] * 1000 + v[1] * 100 + v[2] * 10 + v[3], mo = v[4] * 10 + v[5], d = v[6] * 10 + v[7];
+            int hh = v[8] * 10 + v[9], mi = v[10] * 10 + v[11], ss = v[12] * 10 + v[13];
+            if (y < 2000 || y > 2099 || mo < 1 || mo > 12 || d < 1 || d > 31 || hh > 23 || mi > 59 || ss > 59) { con_puts("error: not a date\r\n"); return; }
+            if (rtc_set(rtc_from_date(y, mo, d, hh, mi, ss))) { con_puts("error: no 32 kHz clock\r\n"); return; }
+        }
+        if (rtc_start() != 1) { con_puts("no 32 kHz crystal: no clock\r\n"); return; }
+        if (!rtc_is_set()) { con_puts("not set (time YYYYMMDDhhmmss)\r\n"); return; }
+        int y, mo, d, hh, mi, ss; rtc_to_date(rtc_get(), &y, &mo, &d, &hh, &mi, &ss);
+        const int f[6] = { y, mo, d, hh, mi, ss }; const char sep[6] = { '-', '-', ' ', ':', ':', '\r' };
+        con_udec(f[0]);
+        for (int k = 1; k < 6; k++) { con_putc(sep[k - 1]); con_putc((char)('0' + f[k] / 10)); con_putc((char)('0' + f[k] % 10)); }
+        con_puts("\r\n");
+    }
+    else if (streq(c, "split")) {                    /* split [Hz]: MS5351M below, MAX2871 from here */
+        uint64_t f;
+        if (argc_ == 2) { if (!parse_u64(argv_[1], &f) || f < SPLIT_MIN || f > SPLIT_MAX) { con_puts("usage: split <50000000-112500000>\r\n"); return; } sweep_cfg.split = (uint32_t)f; synth_all_off(); vna_restart(); }
+        put_u64(sweep_cfg.split); con_puts(" Hz\r\n");
+    }
+    else if (streq(c, "tcxo")) {                     /* tcxo [measured Hz | ppb <n>]: frequency trim */
+        uint64_t f;
+        if (argc_ == 3 && streq(argv_[1], "ppb")) {
+            const char *s = argv_[2]; int neg = *s == '-'; if (neg) s++;
+            if (!parse_u64(s, &f) || f > 200000) { con_puts("usage: tcxo ppb <-200000..200000>\r\n"); return; }
+            tcxo_ppb = neg ? -(int32_t)f : (int32_t)f;
+        } else if (argc_ == 2) {
+            if (!parse_u64(argv_[1], &f) || f < 23995000 || f > 24005000) { con_puts("usage: tcxo <measured TCXO Hz, 23995000-24005000> | tcxo ppb <n>\r\n"); return; }
+            tcxo_ppb = (int32_t)(((int64_t)f - 24000000) * 1000 / 24);
+        } else if (argc_ != 1) { con_puts("usage: tcxo [<measured Hz> | ppb <n>]\r\n"); return; }
+        con_puts("ppb "); con_dec(tcxo_ppb); con_puts(" (TCXO "); put_u64((uint64_t)(24000000 + (int64_t)tcxo_ppb * 24 / 1000)); con_puts(" Hz)\r\n");
+    }
     else if (streq(c, "power")) {                    /* NanoVNA-D's name: stimulus level 0-3 */
         uint64_t p;
         if (argc_ == 2) { if (!parse_u64(argv_[1], &p) || p > 3) { con_puts("usage: power [0-3]\r\n"); return; } vna_set_txpower((int)p); }

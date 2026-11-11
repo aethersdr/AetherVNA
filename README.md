@@ -66,6 +66,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 18: TRANSFORM: time domain (low-pass impulse/step, band pass, Kaiser windows, span), checked against an ideal line | Done |
 | 19: TX POWER (stimulus level), measured: only level 0 is clean below 100 MHz | Done |
 | 20: CAL KIT: open/short/load/thru standards model, checked against a synthetic error box | Done |
+| 21: expert settings: band split, TCXO trim, VBAT offset, remember state, raw samples, RTC date and time, firmware dump | Done |
 | Later: the remaining stock menus (NOTES.md, stage 12), open/short level check above 1 GHz | Planned |
 
 ## Build and flash
@@ -93,7 +94,7 @@ commands follow NanoVNA-D so existing tools can drive it:
 | `calkit [ideal\|open\|short\|load\|thru ..]` | calibration standards model (kept by `config save`) |
 | `cal get <std\|terms>`, `cal put <std> <i> <4 values>` | read standards and error terms; restore a saved calibration |
 | `flags` | per point: tuned frequency, reference level, ok/clip/lowref/range |
-| `gain [auto\|0..3]`, `avg [auto\|n]`, `retune [0\|1]`, `bracket [0\|1]`, `settle`, `tsettle`, `power [0-3]` | measurement settings |
+| `gain [auto\|0..3]`, `avg [auto\|n]`, `retune [0\|1]`, `bracket [0\|1]`, `settle`, `tsettle`, `power [0-3]`, `split [Hz]`, `tcxo [Hz]`, `time [YYYYMMDDhhmmss]` | measurement and clock settings |
 | `info`, `version`, `vbat`, `temp`, `jog`, `touch` | identity, state, battery, MCU temperature sensor (mV), inputs |
 | `trace [1-4 [on\|off\|s11\|s21\|<format>\|scale <v>\|ref <v>\|refpos <d>\|auto\|active]]` | the screen's traces; formats `logmag phase swr smith linear r x z` |
 | `marker [1-4 [on\|off\|active\|<index>\|minswr\|max\|min]]` | the screen's markers |

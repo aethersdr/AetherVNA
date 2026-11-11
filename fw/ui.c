@@ -145,6 +145,7 @@ static uint32_t jog_step;                          /* Hz per jog click, 0 = one 
 typedef struct { uint8_t on, fmt, ch, src, refpos; uint16_t n; float scale, ref; float v[POINTS_MAX]; } mem_t;
 static mem_t mem[4];
 static float edelay, s21_offset, port_z = 50;      /* s, dB, ohm */
+static uint8_t remember;                             /* EXPERT > REMEMBER: save the state to slot 0 after a change */
 enum { MS_OFF, MS_LC, MS_CABLE, MS_SHUNTLC, MS_SERIESL, MS_XTAL, MS_N };
 static uint8_t meas_mode;
 static float meas_rl = 50, meas_vf = 0.66f;
@@ -154,7 +155,7 @@ static const char *const meas_name[MS_N] = { "off", "lc", "cable", "shuntlc", "s
 static uint8_t grid_values = 1, dot_grid, flipped;
 
 /* ---------- UI state ---------- */
-enum { MODE_MAIN, MODE_GRID, MODE_TCAL, MODE_TTEST, MODE_INFO };
+enum { MODE_MAIN, MODE_GRID, MODE_TCAL, MODE_TTEST, MODE_INFO, MODE_SAMPLES };
 enum { D_LEGEND = 1, D_GRAPH = 2, D_READOUT = 4, D_STATUS = 8, D_MENU = 16, D_FULL = 32 };
 static uint8_t ui_on, have_data, boot_done, mode;
 static uint16_t dirty;
@@ -458,7 +459,7 @@ static void line_text(int x, int y, const char *s, uint16_t fg, int xmax)
 /* ---------- menus ---------- */
 enum {
     MN_HOME, MN_DISPLAY, MN_TRACE, MN_F11, MN_F11B, MN_F11C, MN_S11SM, MN_F21, MN_F21B, MN_S21SM, MN_SCALE, MN_AVG,
-    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_MEAS, MN_TD, MN_TDWIN, MN_TXP, MN_KIT, MN_KITO, MN_KITS, MN_KITL, MN_N
+    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_MEAS, MN_TD, MN_TDWIN, MN_TXP, MN_KIT, MN_KITO, MN_KITS, MN_KITL, MN_EXPERT2, MN_N
 };
 enum {
     A_NONE, A_BACK,
@@ -479,7 +480,7 @@ enum {
     A_SAVE0, A_SAVEEND = A_SAVE0 + 7, A_RCL0 = A_SAVEEND, A_RCLEND = A_RCL0 + 7,
     A_SDS1P = A_RCLEND, A_SDS2P, A_SDSCREEN, A_SDSCAL, A_SDAUTO, A_FILE0, A_FILEEND = A_FILE0 + 8,
     A_MS0 = A_FILEEND, A_MSEND = A_MS0 + 6, A_MSRL = A_MSEND, A_MSVF,
-    A_TDON, A_TDIMP, A_TDSTEP, A_TDBP, A_TDW0, A_TDWEND = A_TDW0 + 3, A_TDSPAN = A_TDWEND, A_TXP0, A_TXPEND = A_TXP0 + 4, A_KC0 = A_TXPEND, A_KOD = A_KC0 + 4, A_KL0, A_KSD = A_KL0 + 4, A_KLR, A_KLL, A_KLD, A_KTD, A_KIDEAL,
+    A_TDON, A_TDIMP, A_TDSTEP, A_TDBP, A_TDW0, A_TDWEND = A_TDW0 + 3, A_TDSPAN = A_TDWEND, A_TXP0, A_TXPEND = A_TXP0 + 4, A_KC0 = A_TXPEND, A_KOD = A_KC0 + 4, A_KL0, A_KSD = A_KL0 + 4, A_KLR, A_KLL, A_KLD, A_KTD, A_KIDEAL, A_XSPLIT, A_XTCXO, A_XVBAT, A_XREMEMBER, A_XSAMPLES, A_XDUMPFW, A_XTIME,
     A_N
 };
 #define SUB(m) (A_SUB + (m))
@@ -504,7 +505,8 @@ static uint8_t menus[MN_N][MROWS] = {                /* MN_SDLOAD is filled from
     [MN_CALMENU] = { SUB(MN_CAL), SUB(MN_SAVE), A_CRANGE, A_CRESET, A_CRESETALL, A_CAPPLY, A_CENH, A_BACK },
     [MN_CAL]     = { A_COPEN, A_CSHORT, A_CLOAD, A_CISOLN, A_CTHRU, A_CDONE, A_CDONERAM, SUB(MN_KIT), A_BACK },
     [MN_CONFIG]  = { A_TOUCHCAL, A_TOUCHTEST, SUB(MN_EXPERT), A_SAVECFG, A_VERSION, A_BRIGHT, A_BACK },
-    [MN_EXPERT]  = { A_FLIP, A_CLEARCFG, A_BOOTLOAD, A_BACK },
+    [MN_EXPERT]  = { A_XSPLIT, A_XTCXO, A_XVBAT, A_XREMEMBER, A_XSAMPLES, A_XTIME, A_FLIP, SUB(MN_EXPERT2), A_BACK },
+    [MN_EXPERT2] = { A_XDUMPFW, A_CLEARCFG, A_BOOTLOAD, A_BACK },
     [MN_SAVE]    = { A_SAVE0, A_SAVE0 + 1, A_SAVE0 + 2, A_SAVE0 + 3, A_SAVE0 + 4, A_SAVE0 + 5, A_SAVE0 + 6, A_BACK },
     [MN_RECALL]  = { A_RCL0, A_RCL0 + 1, A_RCL0 + 2, A_RCL0 + 3, A_RCL0 + 4, A_RCL0 + 5, A_RCL0 + 6, A_BACK },
     [MN_SD]      = { A_SDS1P, A_SDS2P, A_SDSCREEN, A_SDSCAL, A_SDAUTO, SUB(MN_SDLOAD), A_BACK },
@@ -523,12 +525,12 @@ static const uint8_t menu_parent[MN_N] = {
     [MN_F11C] = MN_F11B, [MN_S11SM] = MN_F11, [MN_F21] = MN_DISPLAY, [MN_F21B] = MN_F21, [MN_S21SM] = MN_F21,
     [MN_SCALE] = MN_DISPLAY, [MN_AVG] = MN_DISPLAY, [MN_MARKER] = MN_HOME, [MN_SELMK] = MN_MARKER, [MN_OPS] = MN_MARKER,
     [MN_STIM] = MN_HOME, [MN_CFGSW] = MN_STIM, [MN_CALMENU] = MN_HOME, [MN_CAL] = MN_CALMENU, [MN_CONFIG] = MN_HOME,
-    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD, [MN_MEAS] = MN_HOME, [MN_TD] = MN_DISPLAY, [MN_TDWIN] = MN_TD, [MN_TXP] = MN_CFGSW, [MN_KIT] = MN_CAL, [MN_KITO] = MN_KIT, [MN_KITS] = MN_KIT, [MN_KITL] = MN_KIT,
+    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD, [MN_MEAS] = MN_HOME, [MN_TD] = MN_DISPLAY, [MN_TDWIN] = MN_TD, [MN_TXP] = MN_CFGSW, [MN_KIT] = MN_CAL, [MN_KITO] = MN_KIT, [MN_KITS] = MN_KIT, [MN_KITL] = MN_KIT, [MN_EXPERT2] = MN_EXPERT,
 };
 static const char *const menu_name[MN_N] = {
     "home", "display", "trace", "format_s11", "format_s11_more", "format_s11_more2", "s11_smith", "format_s21",
     "format_s21_more", "s21_smith", "scale", "avg", "marker", "select_marker", "operations", "stimulus", "cfg_sweep",
-    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load", "measure", "transform", "window", "tx_power", "cal_kit", "kit_open", "kit_short", "kit_load" };
+    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load", "measure", "transform", "window", "tx_power", "cal_kit", "kit_open", "kit_short", "kit_load", "expert_more" };
 static const uint8_t avg_vals[8] = { AVG_AUTO, 1, 2, 4, 8, 16, 32, 64 };
 static uint8_t menu_open, menu_id, menu_sel;
 static char sd_files[8][13]; static int sd_nfiles; static uint8_t sd_autoname = 1;
@@ -559,7 +561,7 @@ static int item_label(int a, char *b)
     static const char *const sub_n[MN_N] = {
         "HOME", "DISPLAY", "TRACE", "FORMAT S11", ">MORE", ">MORE", "SMITH", "FORMAT S21", ">MORE", "SMITH",
         "SCALE", "AVG", "MARKER", "SELECT MK", "OPERATIONS", "STIMULUS", "CFG SWEEP", "CALIBRATE", "CALIBRATE",
-        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD", "MEASURE", "TRANSFORM", "WINDOW", "TX POWER", "CAL KIT", "OPEN", "SHORT", "LOAD" };
+        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD", "MEASURE", "TRANSFORM", "WINDOW", "TX POWER", "CAL KIT", "OPEN", "SHORT", "LOAD", ">MORE" };
     char *p = b; *p = 0;
     if (a == A_BACK) { put_s(p, "< BACK"); return CK_NONE; }
     if (a >= A_SUB && a < A_SUB_END) { put_s(p, sub_n[a - A_SUB]); return CK_NONE; }
@@ -601,6 +603,15 @@ static int item_label(int a, char *b)
         p = put_s(p, n[a - A_KC0]); put_fx(p, *kit_field(a), 1); return CK_NONE;
     }
     if (a == A_KIDEAL) { put_s(p, "IDEAL"); return CK_NONE; }
+    switch (a) {
+    case A_XSPLIT: p = put_s(p, "SPLIT "); p = put_fx(p, sweep_cfg.split / 1e6f, sweep_cfg.split % 1000000 ? 1 : 0); put_s(p, "M"); return CK_NONE;
+    case A_XTCXO: put_s(p, "TCXO"); return CK_NONE;
+    case A_XVBAT: put_s(p, "VBAT OFFS"); return CK_NONE;
+    case A_XREMEMBER: put_s(p, "REMEMBER"); return remember ? CK_ON : CK_OFF;
+    case A_XSAMPLES: put_s(p, "SAMPLES"); return CK_NONE;
+    case A_XDUMPFW: put_s(p, "DUMP FW"); return CK_NONE;
+    case A_XTIME: put_s(p, "SET TIME"); return CK_NONE;
+    }
     if (a >= A_TXP0 && a < A_TXPEND) {
         static const char *const n[] = { "2 mA", "4 mA", "6 mA", "8 mA" };   /* above 100 MHz: -4, -1, +2, +5 dBm */
         put_s(p, n[a - A_TXP0]); return sweep_cfg.txpower == a - A_TXP0 ? CK_ON : CK_OFF;
@@ -769,6 +780,10 @@ static const char *target_name(void)
     case A_KLL: return "LOAD SERIES L (pH)";
     case A_KLD: return "LOAD OFFSET DELAY (ps)";
     case A_KTD: return "THRU DELAY (ps)";
+    case A_XSPLIT: return "BAND SPLIT (Hz; k M): 50M-112.5M";
+    case A_XTCXO: return "MEASURED TCXO (Hz; nominal 24000000)";
+    case A_XVBAT: return "BATTERY READING OFFSET (mV)";
+    case A_XTIME: return "DATE AND TIME: YYYYMMDDhhmm";
     default: return "PORT IMPEDANCE (" OHM ")";
     }
 }
@@ -888,6 +903,15 @@ static void keypad_enter(float fmult, uint64_t hmult)
     case A_MSRL: if ((ok = parse_num(kb, fmult, &v) && v > 0)) meas_rl = v; break;
     case A_MSVF: if ((ok = parse_num(kb, fmult, &v) && v >= 0.1f && v <= 1)) meas_vf = v; break;
     case A_TDSPAN: if ((ok = parse_num(kb, fmult, &v) && v >= 0)) td_span = v; break;
+    case A_XSPLIT: if ((ok = parse_hz(kb, hmult, &hz) && hz >= SPLIT_MIN && hz <= SPLIT_MAX)) { sweep_cfg.split = (uint32_t)hz; synth_all_off(); vna_restart(); } break;
+    case A_XTCXO: if ((ok = parse_hz(kb, hmult, &hz) && hz >= 23995000 && hz <= 24005000)) tcxo_ppb = (int32_t)(((int64_t)hz - 24000000) * 1000 / 24); break;
+    case A_XVBAT: if ((ok = parse_num(kb, fmult, &v) && v > -1000 && v < 1000)) vbat_offset_mv = (int16_t)v; break;
+    case A_XTIME: {
+        int dg[12], n = 0; for (const char *q = kb; *q && n < 12; q++) { if (*q < '0' || *q > '9') { n = 0; break; } dg[n++] = *q - '0'; }
+        int y = n == 12 ? dg[0] * 1000 + dg[1] * 100 + dg[2] * 10 + dg[3] : 0, mo = dg[4] * 10 + dg[5], dd = dg[6] * 10 + dg[7], hh = dg[8] * 10 + dg[9], mi = dg[10] * 10 + dg[11];
+        ok = n == 12 && y >= 2000 && y <= 2099 && mo >= 1 && mo <= 12 && dd >= 1 && dd <= 31 && hh <= 23 && mi <= 59 && rtc_set(rtc_from_date(y, mo, dd, hh, mi, 0)) == 0;
+        if (ok) say("clock set", 3000);
+        break; }
     default:
         if (kp_target >= A_KC0 && kp_target <= A_KTD && (ok = parse_num(kb, fmult, &v)) && !(kp_target == A_KLR && v <= 0)) { *kit_field(kp_target) = v; kit_changed(); }
         break;
@@ -942,6 +966,8 @@ static void render(void);
 static void draw_status(void);
 static void info_show(void);
 static void ttest_show(void);
+static void samples_show(void);
+static void samples_draw(void);
 static void cal_step(int k)
 {
     static const char *const nm[] = { "OPEN", "SHORT", "LOAD", "THRU", "ISOLN" };
@@ -1044,6 +1070,16 @@ static void act(int a)
     if (a == A_TDON) { td_set(!td_on); dirty |= D_FULL; return; }
     if (a == A_TDIMP || a == A_TDSTEP || a == A_TDBP) { td_mode = a == A_TDIMP ? TD_IMPULSE : a == A_TDSTEP ? TD_STEP : TD_BANDPASS; td_gen++; dirty |= D_FULL; return; }
     if (a >= A_KC0 && a <= A_KTD) { grid_show(G_KEYPAD, a); return; }
+    if (a == A_XSPLIT || a == A_XTCXO || a == A_XVBAT) { grid_show(G_KEYPAD, a); return; }
+    if (a == A_XTIME) { if (rtc_start() != 1) { say("no 32 kHz crystal: no clock", 3000); return; } grid_show(G_KEYPAD, a); return; }
+    if (a == A_XREMEMBER) { remember ^= 1; say(remember ? "the state is saved to slot 0 20 s after a change (SAVE CONFIG keeps this)" : "remember off", 4000); dirty |= D_MENU; return; }
+    if (a == A_XSAMPLES) { menu_open = 0; samples_show(); return; }
+    if (a == A_XDUMPFW) {
+        char name[13], b[48]; say("writing the firmware to the card...", 10000); draw_status();
+        int r = sd_dump_fw(name);
+        if (r) say("could not write to the card", 3000); else { char *q = put_s(b, "saved "); put_s(q, name); say(b, 4000); }
+        return;
+    }
     if (a == A_KIDEAL) { calkit_t k = { { 0, 0, 0, 0 }, 0, { 0, 0, 0, 0 }, 0, 50, 0, 0, 0 }; calkit = k; kit_changed(); dirty |= D_MENU; return; }
     if (a >= A_TXP0 && a < A_TXPEND) {
         int lv = a - A_TXP0; vna_set_txpower(lv);
@@ -1568,6 +1604,51 @@ static void draw_status(void)
     line_text(2, RY0 + 2 * RDY, b, C_DIM, xm);
 }
 
+
+/* ---------- DISPLAY SAMPLES: one capture's raw ADC samples at the marker ---------- */
+static uint8_t smp_lo[GW], smp_hi[GW];               /* per column, the sample range / 16 */
+static uint64_t smp_f; static int smp_n; static uint8_t smp_clip;
+static void samples_show(void)
+{
+    int idx = active_idx() < 0 ? 0 : active_idx();
+    smp_f = point_freq(idx);
+    uint8_t was = sweep_running; sweep_running = 0;
+    uint64_t tuned; cpx z[4];
+    if (tune(smp_f, &tuned) == 0) {
+        vna_adc_init();
+        capture3(sweep_cfg.settle, adc_buf, &smp_n, &smp_clip, z);
+        for (int c = 0; c < GW; c++) {
+            int a = c * smp_n / GW, b = (c + 1) * smp_n / GW; uint16_t lo = 4095, hi = 0;
+            for (int k = a; k < b; k++) { uint16_t v = adc_buf[k]; if (v < lo) lo = v; if (v > hi) hi = v; }
+            smp_lo[c] = (uint8_t)(lo >> 4); smp_hi[c] = (uint8_t)(hi >> 4);
+        }
+        smp_f = tuned;
+    } else smp_n = 0;
+    if (!was) synth_all_off();
+    sweep_running = was;
+    mode = MODE_SAMPLES;
+    samples_draw();
+}
+static void samples_draw(void)                      /* from the kept columns: a capture can redraw it */
+{
+    lcd_fill(0, 0, W, H, C_BG);
+    char b[96], *p = put_s(b, "SAMPLES at "); p = put_freq(p, smp_f); p = put_s(p, ": "); p = put_u(p, smp_n, 1);
+    p = put_s(p, " conversions (reference, port 1, port 2)"); if (smp_clip) put_s(p, "  CLIPPED");
+    ftext(4, 2, b, &font_s, smp_clip ? 0xF800 : C_TEXT, C_BG, W);
+    ftext(4, H - 14, "full scale 0-4095 top to bottom; tap or hold the jog left to return", &font_s, C_DIM, C_BG, W);
+    int hh = GY1 - GY0;
+    for (int xs = 0; xs < GW; xs += STRIP) {        /* drawn after the capture: BUF is free again */
+        int w = GW - xs < STRIP ? GW - xs : STRIP;
+        for (int r = 0; r < hh; r++) for (int k = 0; k < w; k++) BUF[r * w + k] = (r % DIV_PX == 0) ? C_GRID : C_BG;
+        for (int k = 0; k < w; k++) {
+            int c = xs + k, seg = smp_n ? c * 3 / GW : 0;
+            if (smp_n && ((c * 3) % GW) < 3) for (int r = 0; r < hh; r++) BUF[r * w + k] = C_DIM;   /* segment edges */
+            int top = hh - 1 - smp_hi[c] * (hh - 1) / 255, bot = hh - 1 - smp_lo[c] * (hh - 1) / 255;
+            for (int r = top; r <= bot && smp_n; r++) BUF[r * w + k] = tcolor[seg == 0 ? 1 : seg == 1 ? 0 : 3];
+        }
+        lcd_blit(GX0 + xs, GY0, w, hh, BUF);
+    }
+}
 /* ---------- version and touch test screens ---------- */
 static void info_show(void)
 {
@@ -1585,6 +1666,12 @@ static void info_show(void)
     p = put_s(b, "Battery "); p = put_fx(p, vbat_volts(), 2); p = put_s(p, " V   sweeps "); put_u(p, sweep_count, 1);
     ftext(16, 128, b, &font_s, C_DIM, C_BG, W);
     ftext(16, 146, "Text: Noto Sans (SIL Open Font License 1.1)", &font_s, C_DIM, C_BG, W);
+    if (rtc_is_set()) {
+        int y, mo, d, hh, mi, ss; rtc_to_date(rtc_get(), &y, &mo, &d, &hh, &mi, &ss);
+        p = put_s(b, "Clock "); p = put_u(p, y, 4); *p++ = '-'; p = put_u(p, mo, 2); *p++ = '-'; p = put_u(p, d, 2); *p++ = ' ';
+        p = put_u(p, hh, 2); *p++ = ':'; p = put_u(p, mi, 2); *p++ = ':'; put_u(p, ss, 2);
+        ftext(16, 164, b, &font_s, C_DIM, C_BG, W);
+    }
     ftext(16, 290, "tap or hold the jog left to return", &font_m, C_DIM, C_BG, W);
 }
 static void ttest_show(void)
@@ -1651,7 +1738,7 @@ static void touch_cal_point(uint16_t rx, uint16_t ry)
 }
 static void tap(int x, int y)
 {
-    if (mode == MODE_INFO) { mode = MODE_MAIN; dirty |= D_FULL; return; }
+    if (mode == MODE_INFO || mode == MODE_SAMPLES) { mode = MODE_MAIN; dirty |= D_FULL; return; }
     if (mode == MODE_TTEST) { if (x >= W - 90 && y < 40) { mode = MODE_MAIN; dirty |= D_FULL; } return; }
     if (mode == MODE_GRID) {
         int cols = grid_cols(), cw = W / cols, ch = (H - 64) / 4;
@@ -1715,7 +1802,7 @@ static void nav_move(int d)
 }
 static void nav_hold(int d)
 {
-    if (mode == MODE_INFO || mode == MODE_TTEST) { if (d < 0) { mode = MODE_MAIN; dirty |= D_FULL; } return; }
+    if (mode == MODE_INFO || mode == MODE_TTEST || mode == MODE_SAMPLES) { if (d < 0) { mode = MODE_MAIN; dirty |= D_FULL; } return; }
     if (mode == MODE_TCAL) { if (d < 0) { mode = MODE_MAIN; dirty |= D_FULL; say("touch cal cancelled", 3000); } return; }
     if (mode == MODE_GRID) { if (d > 0) grid_press(grid_sel); else grid_leave(); return; }
     if (menu_open) { if (d > 0) menu_select(menu_sel); else act(A_BACK); }
@@ -1760,7 +1847,7 @@ typedef struct {
     uint8_t tr_act, mk_act, mk_delta, mk_tracking, search_min, grid_values, dot_grid, avg;
     uint32_t jog_step; float edelay, s21_offset, port_z;
 } ui_state_t;
-typedef struct { float ax, bx, ay, by; uint8_t swap, flipped, touch_ok, pad; calkit_t kit; } ui_cfg_t;
+typedef struct { float ax, bx, ay, by; uint8_t swap, flipped, touch_ok, remember; calkit_t kit; int32_t tcxo_ppb; int16_t vbat_mv, pad; } ui_cfg_t;
 int ui_state_size(void) { return sizeof(ui_state_t); }
 static void bcopy_(void *d, const void *s, int n) { uint8_t *a = d; const uint8_t *b = s; while (n--) *a++ = *b++; }
 void ui_state_get(uint8_t *b)
@@ -1784,7 +1871,7 @@ void ui_state_put(const uint8_t *b)
 }
 int ui_cfg_get(uint8_t *b)
 {
-    ui_cfg_t c = { tm_ax, tm_bx, tm_ay, tm_by, tm_swap, flipped, touch_ok, 0, calkit };
+    ui_cfg_t c = { tm_ax, tm_bx, tm_ay, tm_by, tm_swap, flipped, touch_ok, remember, calkit, tcxo_ppb, vbat_offset_mv, 0 };
     bcopy_(b, &c, sizeof c); return sizeof c;
 }
 void ui_cfg_put(const uint8_t *b, int n)
@@ -1793,6 +1880,7 @@ void ui_cfg_put(const uint8_t *b, int n)
     ui_cfg_t c; bcopy_(&c, b, sizeof c);
     tm_ax = c.ax; tm_bx = c.bx; tm_ay = c.ay; tm_by = c.by; tm_swap = c.swap; touch_ok = c.touch_ok;
     if (c.kit.lr > 0) calkit = c.kit;
+    remember = c.remember; tcxo_ppb = c.tcxo_ppb; vbat_offset_mv = c.vbat_mv;
     if (c.flipped != flipped) { flipped = c.flipped; madctl ^= 0xC0; if (lcd_ready) lcd_cmd(0x36, &madctl, 1); }
 }
 void ui_redraw_full(void) { dirty |= D_FULL; td_gen++; }
@@ -1802,6 +1890,7 @@ void ui_render_screen(void)                          /* the whole screen as it s
     else if (mode == MODE_TCAL) draw_cross(tcal_pt[tcal_step][0], tcal_pt[tcal_step][1]);
     else if (mode == MODE_INFO) info_show();
     else if (mode == MODE_TTEST) ttest_show();
+    else if (mode == MODE_SAMPLES) samples_draw();
     else { dirty = D_FULL; render(); }
 }
 
@@ -1810,7 +1899,7 @@ static void render(void)
 {
     uint16_t d = dirty; dirty = 0;
     td_prepare();                                    /* before any drawing: it uses the drawing's half of adc_buf as scratch */
-    if (mode == MODE_TCAL || mode == MODE_INFO || mode == MODE_TTEST) return;
+    if (mode == MODE_TCAL || mode == MODE_INFO || mode == MODE_TTEST || mode == MODE_SAMPLES) return;
     if (mode == MODE_GRID) { if (d & (D_FULL | D_MENU)) draw_grid(); return; }
     td_drawing = 1;
     if (d & D_FULL) { lcd_fill(0, 0, W, H, C_BG); d |= D_LEGEND | D_GRAPH | D_READOUT | D_STATUS | D_MENU; }
@@ -1831,6 +1920,19 @@ static void ui_start(int sweep)
     dirty = D_FULL; render(); drawn_count = sweep_count;
     if (sweep) sweep_running = 1;
 }
+/* REMEMBER: slot 0 follows the state, written once it has been still for 20 s
+ * (a checksum of what a slot holds, so console polling never writes flash). */
+static uint32_t rem_sum, rem_saved, rem_t;
+static void remember_poll(void)
+{
+    static uint32_t last; if (ms_ticks - last < 1000) return; last = ms_ticks;
+    uint8_t b[UI_STATE_MAX]; ui_state_get(b);
+    uint32_t c = 2166136261u;
+    for (int k = 0; k < ui_state_size(); k++) c = (c ^ b[k]) * 16777619u;
+    const uint8_t *q = (const uint8_t *)&sweep_cfg; for (unsigned k = 0; k < sizeof sweep_cfg; k++) c = (c ^ q[k]) * 16777619u;
+    if (c != rem_sum) { rem_sum = c; rem_t = ms_ticks; return; }
+    if (c != rem_saved && ms_ticks - rem_t >= 20000) { if (store_save(0) == 0) rem_saved = c; }
+}
 void ui_background(void)
 {
     if (!boot_done && ms_ticks > UI_BOOT_MS) { boot_done = 1; ui_start(1); }   /* standalone: screen and sweep at power-on */
@@ -1847,6 +1949,7 @@ void ui_background(void)
     }
     if (msg[0] && (int32_t)(msg_until - ms_ticks) <= 0) dirty |= D_STATUS;
     if (confirm_a && ms_ticks - confirm_t >= 3000) { confirm_a = 0; if (menu_open) dirty |= D_MENU; }
+    if (remember) remember_poll();
     if (dirty) render();
 }
 
@@ -1996,7 +2099,7 @@ static void cmd_display(int argc, char **argv)
 }
 static void print_ui(void)
 {
-    static const char *const mn[] = { "main", "grid", "touchcal", "touchtest", "version" };
+    static const char *const mn[] = { "main", "grid", "touchcal", "touchtest", "version", "samples" };
     con_puts("mode "); con_puts(mode == MODE_GRID ? (grid_kind == G_KEYPAD ? "keypad" : "bands") : mn[mode]);
     con_puts(" menu "); con_puts(menu_open ? menu_name[menu_id] : "closed");
     if (mode == MODE_GRID) { con_puts(" selected \""); con_puts(grid_label(grid_sel)); con_putc('"'); }

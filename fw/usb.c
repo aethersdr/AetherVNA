@@ -122,10 +122,12 @@ static const uint8_t *string_desc(int idx, uint16_t *len)
     return str_buf;
 }
 
+static uint8_t tx_ring[4096]; static uint16_t tx_head, tx_tail; static uint8_t tx_busy, tx_last_full;
+
 static void configure_data_eps(void)
 {
     ep_init(1, 0x0001, BUF_EP1_TX, 0, 0);              /* bulk IN */
-    ep_set_tx(1, TX_NAK);
+    ep_set_tx(1, TX_NAK); tx_busy = 0; tx_last_full = 0;
     ep_init(2, 0x0002, 0, BUF_EP2_RX, 0x8400);         /* bulk OUT, 64 bytes */
     ep_set_rx(2, RX_VALID);
     ep_init(3, 0x0603, BUF_EP3_TX, 0, 0);              /* interrupt IN */
@@ -179,7 +181,6 @@ static void usb_reset(void)
 
 volatile uint8_t usb_host_seen;
 static char rx_line[160]; static uint16_t rx_len; static volatile uint8_t line_ready;
-static uint8_t tx_ring[4096]; static uint16_t tx_head, tx_tail; static uint8_t tx_busy;
 static void tx_kick(void);
 
 void con_putc(char c)
@@ -255,12 +256,21 @@ void usb_poll(void)
     }
 }
 
+/* A transfer that ends on a full packet needs a zero-length packet after it:
+ * the host's read (cdc-acm queues 128-byte reads) otherwise stays open
+ * waiting for more, and the tail of a reply - the prompt - is held there
+ * until the next reply arrives. */
 static void tx_kick(void)
 {
-    if (!configured || tx_busy || tx_head == tx_tail) return;
+    if (!configured || tx_busy) return;
+    if (tx_head == tx_tail) {
+        if (tx_last_full) { tx_last_full = 0; BT(1, 1) = 0; tx_busy = 1; ep_set_tx(1, TX_VALID); }
+        return;
+    }
     uint8_t chunk[DATA_SIZE]; uint16_t n = 0;
     while (n < DATA_SIZE && tx_tail != tx_head) { chunk[n++] = tx_ring[tx_tail]; tx_tail = (tx_tail + 1) % sizeof tx_ring; }
     pma_write(BUF_EP1_TX, chunk, n); BT(1, 1) = n;
+    tx_last_full = (n == DATA_SIZE);
     tx_busy = 1; ep_set_tx(1, TX_VALID);
 }
 

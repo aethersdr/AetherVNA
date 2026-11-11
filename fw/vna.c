@@ -12,7 +12,7 @@
 #include "hw.h"
 #include "vna.h"
 
-sweep_cfg_t sweep_cfg = { 1000000ull, 1000000000ull, 101, 200, 1, GAIN_AUTO, 0 };
+sweep_cfg_t sweep_cfg = { 1000000ull, 1000000000ull, 101, 200, AVG_AUTO, GAIN_AUTO, 0, 1 };
 point_t pts[POINTS_MAX];
 volatile uint8_t sweep_running;
 uint32_t sweep_count;
@@ -199,13 +199,26 @@ void synth_all_off(void) { ms_outputs_off(); mx_off(); band = -1; }
 uint32_t tune_settle_us = 0;                        /* extra delay after each retune (console: tsettle) */
 /* Measured on the bench unit (NOTES.md): after its PLL reset the MS5351M needs
  * ~3.5 ms to repeat and ~6 ms to settle within 0.001 dB; the MAX2871 pair
- * 300 us; a band change longer. */
+ * 1 ms for 0.01 deg; a band change 20 ms. */
 #define SETTLE_LOW_US  6000                 /* MS5351M: repeat <0.01 dB from 3.5 ms; 6 ms leaves <0.001 dB mean bias */
-#define SETTLE_HIGH_US 300
-#define SETTLE_BAND_US 10000
+#define SETTLE_HIGH_US 1000                /* 300 us left 0.04 deg mean phase bias, 1 ms 0.01 */
+#define SETTLE_BAND_US 20000               /* 10 ms left 0.0012 dB on the first point */
 /* IF gain by frequency, measured with the thru (NOTES.md): keeps the largest of
  * the three IF segments near 1100-1400 counts, against clipping near 2000.
  * The ratio does not change with gain (within 0.03 dB), so calibration holds. */
+/* Captures per point (each after a fresh retune by default), where the noise
+ * is: measured sd of S21 on the thru at one capture is 0.001-0.0015 dB below
+ * 1.5 GHz, 0.0033 dB at 1.5-3 GHz and 0.0057 dB above; x2 and x4 bring the
+ * upper bands to about 0.002 dB. MAX2871 dividers 2-4 (187.5 MHz-1.5 GHz)
+ * get x2 for the near-integer synthesizer states, which only a retune
+ * re-draws (NOTES.md). */
+int avg_for(uint64_t f)
+{
+    if (sweep_cfg.avg != AVG_AUTO) return sweep_cfg.avg;
+    if (f < 187500000ull) return 1;
+    if (f < 3000000000ull) return 2;
+    return 4;
+}
 int gain_for(uint64_t f)
 {
     if (sweep_cfg.gain != GAIN_AUTO) return sweep_cfg.gain & 3;
@@ -261,23 +274,50 @@ uint16_t adc_single(int ch)
 }
 /* Reference (PA6 high, PA7 low), port 1 (PA6 low, PA7 low), port 2 (PA6 low, PA7 high),
  * and with bracketing the reference again. Pins switch between conversions at
- * fixed sample indices. */
-int capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip)
+ * fixed sample indices.
+ *
+ * The Hann-windowed DFT at the IF (see dft3) runs inside the loop, in the time
+ * the ADC takes for each conversion (82 core cycles; this work is about 20),
+ * so a capture costs only its samples. The nominal mid-scale 2048 is taken
+ * off instead of the segment mean: a periodic Hann window has no response to
+ * DC at the IF bin, so the result is the same (checked against dft3 by `raw`).
+ * The samples are still stored for `raw`. */
+uint32_t capture_cycles;
+int capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip, cpx out[4])
 {
     static const uint8_t st[4][2] = { {1, 0}, {0, 0}, {0, 1}, {1, 0} };
-    int seg = SEG_N + settle, total = (sweep_cfg.bracket ? 4 : 3) * seg;
+    int nseg = sweep_cfg.bracket ? 4 : 3, seg = SEG_N + settle, total = nseg * seg;
     if (settle < 0 || settle > 300) return -1;
     pin_set(P_STIM_PORT, st[0][0]); pin_set(P_RX_SEL, st[0][1]);
     ADC_OSQ3 = 0;
     ADC_CTRL2 |= 1u << 1; ADC_CTRL2 |= 1u << 22;     /* continuous, start */
     uint8_t c = 0;
-    for (int i = 0; i < total; i++) {
-        if (i && i % seg == 0) { int k = i / seg; pin_set(P_STIM_PORT, st[k][0]); pin_set(P_RX_SEL, st[k][1]); }
+    int k = 0, j = 0;                                /* segment, sample within it */
+    uint32_t ph = 0, phs = 1500;                     /* IF phase index of sample i, and minus 90 deg */
+    float re = 0, im = 0;
+    uint32_t t0 = 0;
+    for (int i = 0; i < total; i++, j++) {
+        if (j == seg) {
+            out[k] = c_mk(re * (2.0f / 1000.0f), im * (2.0f / 1000.0f));   /* window sum 1000 */
+            re = im = 0; j = 0; k++;
+            pin_set(P_STIM_PORT, st[k][0]); pin_set(P_RX_SEL, st[k][1]);
+        }
         while (!(ADC_STS & 2)) ;
         uint16_t v = ADC_ODT & 0xFFF;
+        if (!i) t0 = DWT_CYCCNT;
         buf[i] = v;
-        if ((i % seg) >= settle && (v == 0 || v == 0xFFF)) c = 1;
+        if (j >= settle) {
+            int n = j - settle;
+            if (v == 0 || v == 0xFFF) c = 1;
+            float x = ((int)v - 2048) * (0.5f - 0.5f * cos_t[n]);
+            re += x * cos_t[ph];
+            im -= x * cos_t[phs];                    /* sin(t) = cos(t - pi/2) */
+        }
+        ph += IF_STEP; if (ph >= SEG_N) ph -= SEG_N;
+        phs += IF_STEP; if (phs >= SEG_N) phs -= SEG_N;
     }
+    capture_cycles = DWT_CYCCNT - t0;                /* first to last sample: (total - 1) * 82 if none missed */
+    out[k] = c_mk(re * (2.0f / 1000.0f), im * (2.0f / 1000.0f));
     ADC_CTRL2 &= ~(1u << 1);
     while (ADC_CTRL2 & (1u << 22)) ;
     (void)ADC_ODT;
@@ -287,7 +327,8 @@ int capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip)
 }
 
 /* Hann-windowed DFT of each segment at exactly 41 cycles per 2000 samples,
- * phase referred to sample 0 of the capture. Scaled to the IF amplitude. */
+ * phase referred to sample 0 of the capture. Scaled to the IF amplitude.
+ * The reference for the inline DFT in capture3 (`raw` prints both). */
 void dft3(const uint16_t *buf, int settle, cpx out[4])
 {
     int seg = SEG_N + settle;
@@ -323,11 +364,11 @@ int measure_point(int i, uint64_t f)
     p->flags = 0;
     if (tune(f, &tuned) < 0) { p->flags = PF_RANGE; p->f_tuned = f; p->s11 = p->s21 = c_mk(0, 0); p->ref = 0; return -1; }
     cpx a11 = c_mk(0, 0), a21 = c_mk(0, 0); float aref = 0; uint8_t fl = 0;
-    int avg = sweep_cfg.avg ? sweep_cfg.avg : 1;
+    int avg = avg_for(f);
     for (int k = 0; k < avg; k++) {
         int n; uint8_t clip; cpx z[4];
-        capture3(sweep_cfg.settle, adc_buf, &n, &clip);
-        dft3(adc_buf, sweep_cfg.settle, z);
+        if (k && sweep_cfg.retune) tune(f, &tuned);   /* a fresh synthesizer state per capture */
+        capture3(sweep_cfg.settle, adc_buf, &n, &clip, z);
         float r2 = c_abs2(z[0]);
         if (clip) fl |= PF_CLIP;
         if (r2 < 400.0f) { fl |= PF_LOWREF; r2 = r2 > 0 ? r2 : 1; }   /* below 20 counts */
@@ -365,7 +406,7 @@ static uint8_t terms_ok;
 
 static int same_cfg(const sweep_cfg_t *a, const sweep_cfg_t *b)
 {
-    return a->start == b->start && a->stop == b->stop && a->points == b->points && a->gain == b->gain && a->bracket == b->bracket;
+    return a->start == b->start && a->stop == b->stop && a->points == b->points && a->gain == b->gain && a->bracket == b->bracket;   /* averaging changes noise, not the expected value */
 }
 int cal_valid(void)
 {

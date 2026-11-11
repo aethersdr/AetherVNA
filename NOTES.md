@@ -499,6 +499,41 @@ at 2.48-2.85 V; left still pulls it to 0 V; it is read with the ADC
 may be wired to BOOT0, which would explain the ROM bootloader hazard: the
 reset guard cannot see it.
 
+## Stage 9: settling, averaging and the detector, tuned for accuracy (2026-11-10)
+
+Bias tests interleave the settings over 12-16 rounds and compare each with
+the longest; a bias counts only if it stands out from that point's own noise.
+
+| Setting | Finding | Chosen |
+|---|---|---|
+| RF switch settle (samples discarded after each ref/port switch) | 50, 200 and 300 samples: mean bias below 0.0006 dB, nothing above noise | 200 (unchanged) |
+| MAX2871 retune settle | mean phase bias against 3 ms: 0.040 deg at 0.3 ms, 0.026 at 0.5 ms, 0.011 at 1 ms; magnitude below 0.0005 dB | 1 ms (+0.3 s on 401 points) |
+| Band change settle | first point after entering the high band 0.0012 dB off at 10 ms (z 3.4), the next point clean; a 6.3 GHz to 100 MHz jump and a low-band jump showed nothing significant | 20 ms (+10 ms per crossing) |
+| Averaging | sd falls as random noise would; plain averaging does nothing for the near-integer MAX2871 states, a retune before each capture does (600 MHz: 0.018 dB at avg 4 without, 0.0057 with); avg 8 costs twice avg 4 for about 25 % less | `avg auto` with `retune 1`: x1 below 187.5 MHz, x2 to 3 GHz, x4 above |
+
+**Detector inside the capture loop:** the Hann DFT now runs between ADC
+conversions (82 core cycles each; the work is about 20) instead of after the
+capture, which had cost 5.8 ms per capture, 34 % of it. Checks, every band,
+with and without bracketing: the inline result matches the separate DFT
+within 2.5e-6 relative, and each capture takes exactly (samples - 1) x 82
+cycles plus a constant 63-66 (`raw` prints both), so no conversion is
+missed. The nominal 2048 offset replaces the segment mean: a periodic Hann
+window has no response to DC at the IF bin.
+
+Result with the defaults (thru, 5-6 sweeps, S21):
+
+| Sweep | Before stage 9 | Now | Worst deviation |
+|---|---|---|---|
+| 1 MHz-1 GHz, 101 pts | 1.88 s | 2.63 s | 0.0042 dB -> 0.0026 dB |
+| 50 kHz-6.3 GHz, 401 pts | 7.2 s | 15.5 s | 0.052 dB -> 0.028 dB |
+
+Median sd now 0.0008-0.0009 dB below 1.5 GHz, 0.0017 dB / 0.078 deg at
+1.5-3 GHz, 0.0023 dB / 0.10 deg above 3 GHz. With `avg 1` the 401-point
+sweep takes 5.4 s (detector change alone). Near-integer points (600, 612 MHz)
+0.012 dB sd, from 0.016-0.019. A calibration now stays valid when `avg` or
+`retune` change (they change noise, not the expected value); `gain` and
+`bracket` still invalidate it.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -524,5 +559,6 @@ recording (2026-11-10).
   +/-0.0046 dB, 1 MHz-1 GHz).
 - Stage 7: sweep, console and calibration on the device, 50 kHz-6.3 GHz.
 - Stage 8: display UI built, starts at power-on; to be confirmed by eye.
+- Stage 9: settling, averaging and the detector tuned for accuracy.
   Next: saved settings and calibration in flash, touch input, an open/short
   level check above 1 GHz, the near-integer MAX2871 states.

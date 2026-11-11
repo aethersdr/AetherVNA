@@ -17,11 +17,14 @@ typedef struct {
     uint64_t start, stop;
     uint16_t points;
     uint16_t settle;                     /* samples discarded after each switch */
-    uint8_t  avg;
+    uint8_t  avg;                        /* captures per point, or AVG_AUTO (by frequency) */
     uint8_t  gain;                       /* IF gain: GAIN_AUTO or a fixed code 0..3 */
     uint8_t  bracket;                    /* 1: second reference after port 2, interpolated */
+    uint8_t  retune;                     /* 1: retune before every averaged capture */
 } sweep_cfg_t;
 #define GAIN_AUTO 0xFF
+#define AVG_AUTO 0
+int  avg_for(uint64_t f);
 int  gain_for(uint64_t f);               /* code: bit0 PB14 (x3), bit1 PB15 (x1.9); both x8 */
 
 /* Per point: raw ratios (port / reference), the frequency actually tuned, flags. */
@@ -52,9 +55,10 @@ int  sweep_once(void);                   /* returns points measured */
 int  ms_write(uint8_t reg, const uint8_t *v, int n);
 int  ms_read(uint8_t reg, uint8_t *v, int n);
 void mx_write(uint8_t le, uint32_t w);
-int  capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip);
+int  capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip, cpx out[4]);
 void dft3(const uint16_t *buf, int settle, cpx out[4]);
 extern uint16_t adc_buf[];
+extern uint32_t capture_cycles;          /* of the last capture, first to last sample */
 float vbat_volts(void);
 void vna_adc_init(void);
 uint16_t adc_single(int ch);              /* e.g. 9 = PB1, the jog ladder */

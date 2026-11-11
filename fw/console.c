@@ -149,12 +149,12 @@ static void cmd_raw(void)
     sweep_running = 0;
     if (tune(f, &tuned) < 0) { con_puts("error: frequency out of range\r\n"); return; }
     vna_adc_init();
-    int n; uint8_t clip; cpx z[4];
-    capture3(sweep_cfg.settle, adc_buf, &n, &clip);
+    int n; uint8_t clip; cpx z[4], zi[4];
+    capture3(sweep_cfg.settle, adc_buf, &n, &clip, zi);
     dft3(adc_buf, sweep_cfg.settle, z);
     con_puts("tuned "); put_u64(tuned); con_puts(" settle "); con_udec(sweep_cfg.settle); con_puts(" n "); con_udec(n);
-    con_puts(" clip "); con_udec(clip); nl();
-    for (int k = 0; k < (sweep_cfg.bracket ? 4 : 3); k++) { con_puts(k == 0 ? "ref " : k == 1 ? "port1 " : k == 2 ? "port2 " : "ref2 "); put_cpx(z[k]); nl(); }
+    con_puts(" clip "); con_udec(clip); con_puts(" cycles "); con_udec(capture_cycles); con_puts(" expected "); con_udec((uint32_t)(n - 1) * 82u); nl();
+    for (int k = 0; k < (sweep_cfg.bracket ? 4 : 3); k++) { con_puts(k == 0 ? "ref " : k == 1 ? "port1 " : k == 2 ? "port2 " : "ref2 "); put_cpx(z[k]); con_puts(" inline "); put_cpx(zi[k]); nl(); }
     for (int i = 0; i < n; i++) { con_hex(adc_buf[i], 3); if ((i & 31) == 31) nl(); }
     nl(); con_puts("end\r\n");
 }
@@ -164,7 +164,7 @@ static void cmd_help(void)
     con_puts("measurement: scan <start> <stop> [points] [outmask] | sweep [start stop [points]] | data [0|1] |\r\n"
              "  frequencies | cal [open|short|load|thru|done|on|off|reset] | cal get <std|terms> |\r\n"
              "  cal put <std> <i> <s11re> <s11im> <s21re> <s21im> | pause | resume | flags |\r\n"
-             "  settle [samples] | tsettle [us] | avg [n] | gain [auto|0..3] | bracket [0|1]\r\n"
+             "  settle [samples] | tsettle [us] | avg [auto|n] | gain [auto|0..3] | bracket [0|1] | retune [0|1]\r\n"
              "instrument: version | info | vbat | clk [tcxo] | backlight [0|1] | touch |\r\n"
              "  lcd [init|test|ui [nosweep]|off|madctl <hex>|inv 0|1|marker <i>|status] |\r\n"
              "  bootloader | reset\r\n"
@@ -219,8 +219,10 @@ void console_line(char *line)
         con_udec(sweep_cfg.settle); nl();
     }
     else if (streq(c, "avg")) {
-        if (argc_ > 1) { uint64_t v; if (parse_u64(argv_[1], &v) && v >= 1 && v <= 64) sweep_cfg.avg = (uint8_t)v; else { con_puts("usage: avg [1..64]\r\n"); return; } }
-        con_udec(sweep_cfg.avg); nl();
+        if (argc_ > 1) { uint64_t v; if (streq(argv_[1], "auto")) sweep_cfg.avg = AVG_AUTO;
+            else if (parse_u64(argv_[1], &v) && v >= 1 && v <= 64) sweep_cfg.avg = (uint8_t)v; else { con_puts("usage: avg [auto|1..64]\r\n"); return; } }
+        if (sweep_cfg.avg == AVG_AUTO) con_puts("auto"); else con_udec(sweep_cfg.avg);
+        nl();
     }
     else if (streq(c, "gain")) {
         if (argc_ == 1) { if (sweep_cfg.gain == GAIN_AUTO) con_puts("auto"); else con_udec(sweep_cfg.gain); nl(); return; }
@@ -228,6 +230,10 @@ void console_line(char *line)
         else if (argv_[1][0] >= '0' && argv_[1][0] <= '3' && !argv_[1][1]) sweep_cfg.gain = argv_[1][0] - '0';
         else { con_puts("usage: gain [auto|0..3]  (bit0 x3, bit1 x1.9, 3 = x8)\r\n"); return; }
         con_puts("ok\r\n");
+    }
+    else if (streq(c, "retune")) {
+        if (argc_ > 1) sweep_cfg.retune = argv_[1][0] == '1';
+        con_puts(sweep_cfg.retune ? "1\r\n" : "0\r\n");
     }
     else if (streq(c, "bracket")) {
         if (argc_ > 1) sweep_cfg.bracket = argv_[1][0] == '1';

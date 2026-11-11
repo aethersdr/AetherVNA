@@ -42,6 +42,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 6: repeatability: TCXO-clocked MCU, coherent sampling, Hann window; calibrated thru +/-0.006 dB, short +/-0.0046 dB (stock: +/-0.015 / +/-0.009) | Done |
 | 7: firmware proper (`fw/`): sweep, console API and SOLT calibration on the device, 50 kHz-6.3 GHz; 101 points 1 MHz-1 GHz in 1.9 s repeat within 0.005 dB | Done |
 | 8: display UI (test card, S11/S21 log-magnitude traces, jog marker, status), starts at power-on | Built; orientation and colours not yet confirmed by eye |
+| 9: settling, averaging and detector tuned for accuracy: 101 points 1 MHz-1 GHz in 2.6 s within 0.003 dB, 401 points to 6.3 GHz in 15.5 s within 0.03 dB | Done |
 | Later: saved settings and calibration in flash, touch input, Smith chart, open/short level check above 1 GHz | Planned |
 
 ## Build and flash
@@ -68,7 +69,7 @@ commands follow NanoVNA-D so existing tools can drive it:
 | `cal open\|short\|load\|thru\|done\|on\|off\|reset` | one-path SOLT on the device (RAM only for now) |
 | `cal get <std\|terms>`, `cal put <std> <i> <4 values>` | read standards and error terms; restore a saved calibration |
 | `flags` | per point: tuned frequency, reference level, ok/clip/lowref/range |
-| `gain [auto\|0..3]`, `avg [n]`, `bracket [0\|1]`, `settle`, `tsettle` | measurement settings |
+| `gain [auto\|0..3]`, `avg [auto\|n]`, `retune [0\|1]`, `bracket [0\|1]`, `settle`, `tsettle` | measurement settings |
 | `info`, `version`, `vbat`, `jog`, `touch` | identity, state, battery, inputs |
 | `lcd [init\|test\|ui\|off\|madctl <hex>\|inv 0\|1\|marker <i>\|status]`, `backlight` | display |
 | `raw <freq>`, `tune`, `ms`, `mx`, `pin`, `clk` | diagnostics |

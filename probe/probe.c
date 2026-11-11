@@ -680,29 +680,34 @@ static void pin_set(uint8_t pp, int v);
  * settle + n samples: reference (PA6 high, PA7 low), port 1 (PA6 low, PA7
  * low), port 2 (PA6 low, PA7 high). Pins switch between conversions at fixed
  * sample indices, so the host can relate the segments' IF phases. */
+static uint32_t meas_spt = 0;                          /* ADC sample-time code for all channels (0..7) */
 static void cmd_meas3(int n, int settle)
 {
     int seg = n + settle;
     if (n < 64 || settle < 0 || 3 * seg > 8192) { con_puts("usage: meas3 <n> <settle> (3*(n+settle) <= 8192)\r\n"); return; }
     static const uint8_t st[3][2] = { {1, 0}, {0, 0}, {0, 1} };   /* PA6, PA7 */
     pp_out(0x06, st[0][0]); pp_out(0x07, st[0][1]); delay(2000);
-    ADC_SPT1 = 0; ADC_SPT2 = 0;
+    ADC_SPT1 = meas_spt * 0x00249249u; ADC_SPT2 = meas_spt * 0x09249249u;
     ADC_CTRL2 = (7u << 17) | (1u << 20) | 1u;
     delay(5000);
     ADC_CTRL2 |= 1u << 3; for (uint32_t t = 0; (ADC_CTRL2 & 8) && t < 100000; t++) ;
     ADC_CTRL2 |= 1u << 2; for (uint32_t t = 0; (ADC_CTRL2 & 4) && t < 100000; t++) ;
     pin_cfg(0x00, 0); ADC_OSQ1 = 0; ADC_OSQ3 = 0;
     ADC_CTRL2 |= 1u << 1; ADC_CTRL2 |= 1u << 22;
-    uint32_t t0 = DWT_CYCCNT;
+    uint32_t t0 = DWT_CYCCNT, overruns = 0;
     for (int i = 0; i < 3 * seg; i++) {
         if (i && i % seg == 0) { int k = i / seg; pin_set(0x06, st[k][0]); pin_set(0x07, st[k][1]); }
         while (!(ADC_STS & 2)) ;
+        uint32_t t = DWT_CYCCNT;
         adc_buf[i] = ADC_ODT & 0xFFF;
+        static uint32_t last; if (i && t - last > 2 * 48u * 41u / 24u + 20u) overruns++;   /* gap > ~2 samples at spt 3 */
+        last = t;
     }
     uint32_t cyc = DWT_CYCCNT - t0;
     ADC_CTRL2 = 0;
     con_puts("rate_hz "); con_dec((uint32_t)((uint64_t)3 * seg * 48000000ull / cyc));
-    con_puts(" seg "); con_dec(seg); con_puts(" settle "); con_dec(settle); con_puts("\r\n");
+    con_puts(" seg "); con_dec(seg); con_puts(" settle "); con_dec(settle);
+    con_puts(" spt "); con_dec(meas_spt); con_puts(" gaps "); con_dec(overruns); con_puts("\r\n");
     for (int i = 0; i < 3 * seg; i++) { con_hex(adc_buf[i], 3); if ((i & 31) == 31) con_puts("\r\n"); }
     con_puts("\r\nend\r\n");
 }
@@ -1039,6 +1044,36 @@ done:
     pin_release(0x11); pin_release(0x1D); ADC_CTRL2 = 0;
 }
 
+/* clk hext: run the core from the external clock input through the PLL x2
+ * (24 MHz TCXO -> 48 MHz, the same speed as the HICK). USB keeps the HICK
+ * 48 MHz with ACC trimming. Reports what it found; falls back to the HICK. */
+static void cmd_clk_hext(void)
+{
+    if (((CRM_CFG >> 2) & 3) == 2) { con_puts("already on pll from hext\r\n"); return; }   /* never stop the running PLL */
+    CRM_CTRL |= 1u << 16;                              /* HEXT on */
+    uint32_t t;
+    for (t = 0; !(CRM_CTRL & (1u << 17)) && t < 2000000; t++) WDT_CMD = 0xAAAA;
+    if (!(CRM_CTRL & (1u << 17))) {
+        CRM_CTRL &= ~(1u << 16);
+        con_puts("hext not stable: no clock on the crystal pins; staying on HICK\r\n"); return;
+    }
+    /* Measure HEXT against the HICK-timed cycle counter: switch SCLK to HEXT
+     * briefly and count DWT cycles over a fixed number of SysTick... simpler:
+     * run the PLL x2 and let the host check the IF it fits. */
+    CRM_CTRL &= ~(1u << 24);                           /* PLL off */
+    while (CRM_CTRL & (1u << 25)) ;
+    uint32_t cfg = CRM_CFG;
+    cfg &= ~((3u << 29) | (0xFu << 18) | (1u << 17) | (1u << 16) | (1u << 31));
+    cfg |= (1u << 16);                                 /* PLL from HEXT, undivided; mult x2 (code 0) */
+    CRM_CFG = cfg;
+    CRM_CTRL |= 1u << 24;
+    for (t = 0; !(CRM_CTRL & (1u << 25)) && t < 2000000; t++) WDT_CMD = 0xAAAA;
+    if (!(CRM_CTRL & (1u << 25))) { CRM_CTRL &= ~(1u << 24); con_puts("pll did not lock; staying on HICK\r\n"); return; }
+    CRM_CFG = (CRM_CFG & ~3u) | 2u;                    /* SCLK = PLL */
+    for (t = 0; ((CRM_CFG >> 2) & 3) != 2 && t < 2000000; t++) ;
+    con_puts(((CRM_CFG >> 2) & 3) == 2 ? "sclk on pll from hext (x2)\r\n" : "switch failed\r\n");
+}
+
 static int streq(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return *a == *b; }
 static int prefix_num(const char *line, const char *word, int *num)
 {
@@ -1143,6 +1178,10 @@ static void command(char *line)
         }
         con_dec(nw); con_puts(" words written\r\n");
     mx_done: ;
+    } else if (prefix_num(line, "spt", &(int){0})) {
+        int k = 0; prefix_num(line, "spt", &k); if (k >= 0 && k <= 7) { meas_spt = k; con_puts("ok\r\n"); } else con_puts("usage: spt 0..7\r\n");
+    } else if (streq(line, "clk hext")) {
+        cmd_clk_hext();
     } else if (streq(line, "rfrelease")) {
         cmd_rfrelease(); con_puts("released\r\n");
     } else if (streq(line, "lcdred")) {
@@ -1156,7 +1195,7 @@ static void command(char *line)
     } else if (streq(line, "jog")) {
         cmd_jog();
     } else if (streq(line, "help")) {
-        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | synthrf [k] | rfprog c d le n | rfrelease | pin c 0|1|r | msw reg v.. | mx hex.. | adc0 n | adc2 n | meas3 n settle | bootloader | reset | help\r\n");
+        con_puts("id | pins | activity | adc | i2cscan | ms5351 | synthsearch | touch | lcdid | buttons | jog | lcdred | lcdredlow | synthrf [k] | rfprog c d le n | rfrelease | pin c 0|1|r | msw reg v.. | mx hex.. | adc0 n | adc2 n | meas3 n settle | clk hext | bootloader | reset | help\r\n");
     } else {
         con_puts("error: unknown command; help lists them\r\n");
     }

@@ -340,6 +340,44 @@ cycles) and 2 averages; 200-sample settling after each switch; the MCU timed
 from its own oscillator rather than the 24 MHz TCXO; the low-band port 2
 segment near clipping. Then: the sweep loop on the device, and the console API.
 
+## Stage 6: repeatability (2026-11-10)
+
+Each cause measured on its own (S21 on the thru, std over 8 captures), then
+fixed:
+
+| Step | 10 MHz | 300 MHz |
+|---|---|---|
+| Stage 5 method (HICK clock, 1.714 MS/s, fitted IF) | 0.0038 dB, 3.2 deg | 0.11 dB, 2.9 deg |
+| Uniform sampling: ADC sample time 28.5 cycles, exactly 24 MHz / 41 = 585.4 kS/s (the 1.7 MS/s polling loop missed conversions) | 0.0081 dB, 1.1 deg | 0.025 dB, 1.0 deg |
+| **MCU from the 24 MHz TCXO** (`clk hext`: HEXT, PLL x2 = 48 MHz; USB stays on HICK48 + ACC). The IF then fits at 12 000.02 +/- 0.13 Hz: sampling is coherent with the synthesizers | 0.029 dB, 0.48 deg | 0.018 dB, 0.44 deg |
+| Exact IF instead of a fit | 0.020 dB, 0.14 deg | 0.021 dB, 0.12 deg |
+| **Hann window** (the 16.35 kHz spur and the switching edges leak into a rectangular window) | **0.0013 dB, 0.003 deg** | **0.0015 dB, 0.015 deg** |
+
+**Retuning** then still added ~0.03 dB at 0.8-1 GHz, with the reference and
+port 2 amplitudes moving in opposite directions: an extra 12 kHz signal of
+unrelated phase. The other band's synthesizers were still running (the
+MS5351M's CLK2/CLK0 pair sits 12 kHz apart, as does the MAX2871 pair), and
+their leakage made a second IF. **Switching the other band off at each band
+change** (MS5351M outputs off in the high band; both MAX2871s shut down in the
+low band) brings retune scatter to 0.001-0.002 dB, 0.02-0.07 deg (high band)
+and 0.0005-0.001 dB, under 0.01 deg (low band). The MAX2871's low-spur modes
+made no difference.
+
+**Final calibration** (60 points, 1 MHz-1 GHz, 1 capture per point, 7 s per
+sweep; standards in stock's order, thru last, checks without re-mating):
+
+| Check | Our firmware | Stock (same caps) |
+|---|---|---|
+| Fresh short, corrected | 0 dB +/- 0.0046 dB, 180 +/- 0.062 deg | +/- 0.009 dB, +/- 0.06 deg |
+| Fresh thru, 1-100 MHz | -0.0032..+0.0054 dB | +/- 0.015 dB |
+| Fresh thru, 100 MHz-1 GHz | -0.0060..+0.0026 dB | (+/- 0.007 dB to 200 MHz) |
+| Fresh thru phase | -0.054..+0.159 deg | +/- 0.07 deg |
+| Sweep-to-sweep S21 (raw, thru) | 0.005 dB, 0.12 deg | |
+
+Measuring the thru first and checking it after the caps adds the SMA
+re-mating error (0.05-0.08 dB near 1 GHz); the checks above avoid it, as
+stock's procedure does.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -361,5 +399,6 @@ recording (2026-11-10).
 - Stage 2a (I2C scan): done, MS5351M at 0x60 on PB10/PB11.
 - Stage 2c: touch, display, backlight and jog mapped; MAX2871 not found by
   MUX/LD response.
-- Stage 5: first calibrated sweep from our own firmware (1 MHz-1 GHz).
-  Next: repeatability (integration, TCXO timing), on-device sweep, console API.
+- Stage 6: repeatability matches or beats stock (thru +/-0.006 dB, short
+  +/-0.0046 dB, 1 MHz-1 GHz). Next: the sweep loop on the device, the console
+  API, then the full 50 kHz-6.3 GHz range.

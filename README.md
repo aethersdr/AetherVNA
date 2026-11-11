@@ -39,6 +39,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 3: low band: CLK2 stimulus, CLK0 LO, 24 MHz reference, PA7 channel select, PB14/PB15 IF gain; IF seen at PA0 | Done |
 | 4: high band: second MAX2871 (LE PA4) is the LO; measurement chain mapped | Done |
 | 5: first calibrated sweep from our own firmware, 1 MHz-1 GHz (thru +/-0.09 dB LF, +/-0.24 dB HF) | Done |
+| 6: repeatability: TCXO-clocked MCU, coherent sampling, Hann window; calibrated thru +/-0.006 dB, short +/-0.0046 dB (stock: +/-0.015 / +/-0.009) | Done |
 | Later: synthesizers, RF switches, ADC, sweeps, calibration, console API | Planned |
 
 ## Build and flash

@@ -173,3 +173,74 @@ def save_std(name):
     s11, s21 = sweep()
     _json.dump({"freq_hz": FREQS, "s11": [[z.real, z.imag] for z in s11], "s21": [[z.real, z.imag] for z in s21]}, open("%s/%s.json" % (CALDIR, name), "w"))
     return s11, s21
+
+# ---- stage 6: repeatable measurement (TCXO clock, 585 kS/s, exact IF, Hann window, one band's synthesizers at a time) ----
+import math, cmath
+def tune(f):
+    if f < 100e6: probe("pin 8 0"); ms_lf(f)
+    else:
+        probe("pin 8 1"); k = mx_diva(f); mx_on(1, f, diva=k, apwr=0); mx_on(4, f + 12000, diva=k, apwr=0)
+def stats(vals):
+    a = np.array(vals); m = a.mean()
+    db = 20 * np.log10(np.abs(a / m)); ph = np.degrees(np.angle(a / m))
+    return db.std(), ph.std()
+def run(f, reps, retune, n=2048, settle=200):
+    s21, s11, fif = [], [], []
+    tune(f)
+    for _ in range(reps):
+        if retune: tune(f)
+        m = meas3(n, settle); s21.append(m["p2"] / m["ref"]); s11.append(m["p1"] / m["ref"]); fif.append(m["f_if_hz"])
+    d, p = stats(s21)
+    return d, p, np.mean(fif), np.std(fif)
+SPT_CYC = {0: 1.5, 1: 7.5, 2: 13.5, 3: 28.5, 4: 41.5, 5: 55.5, 6: 71.5, 7: 239.5}
+def meas3x(n, settle, spt, f_if=12000.0, fit=True, window=False):
+    out = probe("meas3 %d %d" % (n, settle), 60); lines = out.splitlines()
+    h = lines[0].split(); meas_rate = int(h[1]); seg = int(h[3]); settle = int(h[5]); gaps = int(h[9])
+    rate = 24e6 / (SPT_CYC[spt] + 12.5)
+    v = np.array([int(l[i:i+3], 16) for l in lines[1:] if l and l != "end" for i in range(0, len(l), 3)], float)
+    idx = [np.arange(k * seg + settle, (k + 1) * seg) for k in range(3)]
+    fc = f_if / rate
+    if fit:
+        r = v[idx[0]] - v[idx[0]].mean()
+        mag = lambda x: abs(np.sum(r * np.exp(-2j * np.pi * x * idx[0])))
+        lo, hi = fc * 0.995, fc * 1.005
+        for _ in range(60):
+            m1, m2 = lo + (hi - lo) * 0.382, lo + (hi - lo) * 0.618
+            if mag(m1) < mag(m2): lo = m1
+            else: hi = m2
+        fc = (lo + hi) / 2
+    w = np.hanning(len(idx[0])) if window else np.ones(len(idx[0]))
+    z = [np.sum((v[i] - v[i].mean()) * w * np.exp(-2j * np.pi * fc * i)) * 2 / w.sum() for i in idx]
+    return {"ref": z[0], "p1": z[1], "p2": z[2], "f_if_hz": fc * rate, "gaps": gaps, "meas_rate": meas_rate, "rate": rate}
+def runx(f, reps, n, settle, spt, fit=True, window=False):
+    tune(f); s21, fif, gaps = [], [], 0
+    for _ in range(reps):
+        m = meas3x(n, settle, spt, fit=fit, window=window); s21.append(m["p2"] / m["ref"]); fif.append(m["f_if_hz"]); gaps += m["gaps"]
+    d, p = stats(s21); return d, p, np.mean(fif), np.std(fif), gaps, m["meas_rate"]
+CALDIR = "ourcal"
+def point(f, f_if=12000):
+    tune(f); m = meas3x(2400, 200, 3, f_if=f_if, fit=False, window=True)
+    return m["p1"] / m["ref"], m["p2"] / m["ref"], abs(m["ref"])
+def sweep(avg=1):
+    probe("pin 30 0"); probe("pin 31 0")
+    s11, s21 = [], []
+    for f in FREQS:
+        a = b = 0
+        for _ in range(avg):
+            x, y, _r = point(f); a += x; b += y
+        s11.append(a / avg); s21.append(b / avg)
+    return s11, s21
+def save_std(name):
+    os.makedirs(CALDIR, exist_ok=True); s11, s21 = sweep()
+    _json.dump({"freq_hz": FREQS, "s11": [[z.real, z.imag] for z in s11], "s21": [[z.real, z.imag] for z in s21]}, open("%s/%s.json" % (CALDIR, name), "w"))
+    return s11, s21
+def setup():
+    probe("spt 3"); probe("clk hext")
+_band = [None]
+def tune(f):
+    if f < 100e6:
+        if _band[0] != "lf": probe("mx 00004062"); probe("mxl 4 00004062"); _band[0] = "lf"   # MAX2871s shut down
+        probe("pin 8 0"); ms_lf(f)
+    else:
+        if _band[0] != "hf": ms_off(); _band[0] = "hf"                                          # MS5351M outputs off
+        probe("pin 8 1"); k = mx_diva(f); mx_on(1, f, diva=k, apwr=0); mx_on(4, f + 12000, diva=k, apwr=0)

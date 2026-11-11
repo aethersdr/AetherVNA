@@ -72,7 +72,9 @@ uint16_t adc_single(int ch);              /* e.g. 9 = PB1, the jog ladder */
 /* calibration (one-path SOLT; ideal standards) */
 enum { CAL_OPEN, CAL_SHORT, CAL_LOAD, CAL_THRU, CAL_N, CAL_ISOLN = CAL_N };
 #define CAL_ISO_BIT (1u << CAL_ISOLN)            /* isolation measured on its own (both ports terminated) */
-extern uint8_t cal_enhanced;             /* enhanced response (port 1 match) in S21, default 1 */
+extern uint8_t cal_enhanced;
+typedef struct { float c[4], od, l[4], sd, lr, ll, ld, td; } calkit_t;   /* fF.., ps, pH.., ps, ohm, pH, ps, ps */
+extern calkit_t calkit;              /* used by cal_solve; all zero = ideal */             /* enhanced response (port 1 match) in S21, default 1 */
 extern uint8_t cal_have;                 /* bit per standard measured */
 extern uint8_t cal_on;                   /* apply when valid */
 int  cal_valid(void);

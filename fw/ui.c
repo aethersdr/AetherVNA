@@ -458,7 +458,7 @@ static void line_text(int x, int y, const char *s, uint16_t fg, int xmax)
 /* ---------- menus ---------- */
 enum {
     MN_HOME, MN_DISPLAY, MN_TRACE, MN_F11, MN_F11B, MN_F11C, MN_S11SM, MN_F21, MN_F21B, MN_S21SM, MN_SCALE, MN_AVG,
-    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_MEAS, MN_TD, MN_TDWIN, MN_TXP, MN_N
+    MN_MARKER, MN_SELMK, MN_OPS, MN_STIM, MN_CFGSW, MN_CALMENU, MN_CAL, MN_CONFIG, MN_EXPERT, MN_SAVE, MN_RECALL, MN_SD, MN_SDLOAD, MN_MEAS, MN_TD, MN_TDWIN, MN_TXP, MN_KIT, MN_KITO, MN_KITS, MN_KITL, MN_N
 };
 enum {
     A_NONE, A_BACK,
@@ -479,7 +479,7 @@ enum {
     A_SAVE0, A_SAVEEND = A_SAVE0 + 7, A_RCL0 = A_SAVEEND, A_RCLEND = A_RCL0 + 7,
     A_SDS1P = A_RCLEND, A_SDS2P, A_SDSCREEN, A_SDSCAL, A_SDAUTO, A_FILE0, A_FILEEND = A_FILE0 + 8,
     A_MS0 = A_FILEEND, A_MSEND = A_MS0 + 6, A_MSRL = A_MSEND, A_MSVF,
-    A_TDON, A_TDIMP, A_TDSTEP, A_TDBP, A_TDW0, A_TDWEND = A_TDW0 + 3, A_TDSPAN = A_TDWEND, A_TXP0, A_TXPEND = A_TXP0 + 4,
+    A_TDON, A_TDIMP, A_TDSTEP, A_TDBP, A_TDW0, A_TDWEND = A_TDW0 + 3, A_TDSPAN = A_TDWEND, A_TXP0, A_TXPEND = A_TXP0 + 4, A_KC0 = A_TXPEND, A_KOD = A_KC0 + 4, A_KL0, A_KSD = A_KL0 + 4, A_KLR, A_KLL, A_KLD, A_KTD, A_KIDEAL,
     A_N
 };
 #define SUB(m) (A_SUB + (m))
@@ -502,7 +502,7 @@ static uint8_t menus[MN_N][MROWS] = {                /* MN_SDLOAD is filled from
     [MN_STIM]    = { A_START, A_STOP, A_CENTER, A_SPAN, A_CW, A_JOGSTEP, SUB(MN_CFGSW), A_BANDS, A_BACK },
     [MN_CFGSW]   = { A_POINTS, SUB(MN_TXP), A_BACK },
     [MN_CALMENU] = { SUB(MN_CAL), SUB(MN_SAVE), A_CRANGE, A_CRESET, A_CRESETALL, A_CAPPLY, A_CENH, A_BACK },
-    [MN_CAL]     = { A_COPEN, A_CSHORT, A_CLOAD, A_CISOLN, A_CTHRU, A_CDONE, A_CDONERAM, A_CSTD, A_BACK },
+    [MN_CAL]     = { A_COPEN, A_CSHORT, A_CLOAD, A_CISOLN, A_CTHRU, A_CDONE, A_CDONERAM, SUB(MN_KIT), A_BACK },
     [MN_CONFIG]  = { A_TOUCHCAL, A_TOUCHTEST, SUB(MN_EXPERT), A_SAVECFG, A_VERSION, A_BRIGHT, A_BACK },
     [MN_EXPERT]  = { A_FLIP, A_CLEARCFG, A_BOOTLOAD, A_BACK },
     [MN_SAVE]    = { A_SAVE0, A_SAVE0 + 1, A_SAVE0 + 2, A_SAVE0 + 3, A_SAVE0 + 4, A_SAVE0 + 5, A_SAVE0 + 6, A_BACK },
@@ -513,18 +513,22 @@ static uint8_t menus[MN_N][MROWS] = {                /* MN_SDLOAD is filled from
     [MN_TD]      = { A_TDON, A_TDIMP, A_TDSTEP, A_TDBP, SUB(MN_TDWIN), A_MSVF, A_TDSPAN, A_BACK },
     [MN_TDWIN]   = { A_TDW0, A_TDW0 + 1, A_TDW0 + 2, A_BACK },
     [MN_TXP]     = { A_TXP0, A_TXP0 + 1, A_TXP0 + 2, A_TXP0 + 3, A_BACK },
+    [MN_KIT]     = { SUB(MN_KITO), SUB(MN_KITS), SUB(MN_KITL), A_KTD, A_KIDEAL, A_BACK },
+    [MN_KITO]    = { A_KC0, A_KC0 + 1, A_KC0 + 2, A_KC0 + 3, A_KOD, A_BACK },
+    [MN_KITS]    = { A_KL0, A_KL0 + 1, A_KL0 + 2, A_KL0 + 3, A_KSD, A_BACK },
+    [MN_KITL]    = { A_KLR, A_KLL, A_KLD, A_BACK },
 };
 static const uint8_t menu_parent[MN_N] = {
     [MN_HOME] = MN_HOME, [MN_DISPLAY] = MN_HOME, [MN_TRACE] = MN_DISPLAY, [MN_F11] = MN_DISPLAY, [MN_F11B] = MN_F11,
     [MN_F11C] = MN_F11B, [MN_S11SM] = MN_F11, [MN_F21] = MN_DISPLAY, [MN_F21B] = MN_F21, [MN_S21SM] = MN_F21,
     [MN_SCALE] = MN_DISPLAY, [MN_AVG] = MN_DISPLAY, [MN_MARKER] = MN_HOME, [MN_SELMK] = MN_MARKER, [MN_OPS] = MN_MARKER,
     [MN_STIM] = MN_HOME, [MN_CFGSW] = MN_STIM, [MN_CALMENU] = MN_HOME, [MN_CAL] = MN_CALMENU, [MN_CONFIG] = MN_HOME,
-    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD, [MN_MEAS] = MN_HOME, [MN_TD] = MN_DISPLAY, [MN_TDWIN] = MN_TD, [MN_TXP] = MN_CFGSW,
+    [MN_EXPERT] = MN_CONFIG, [MN_SAVE] = MN_CALMENU, [MN_RECALL] = MN_HOME, [MN_SD] = MN_HOME, [MN_SDLOAD] = MN_SD, [MN_MEAS] = MN_HOME, [MN_TD] = MN_DISPLAY, [MN_TDWIN] = MN_TD, [MN_TXP] = MN_CFGSW, [MN_KIT] = MN_CAL, [MN_KITO] = MN_KIT, [MN_KITS] = MN_KIT, [MN_KITL] = MN_KIT,
 };
 static const char *const menu_name[MN_N] = {
     "home", "display", "trace", "format_s11", "format_s11_more", "format_s11_more2", "s11_smith", "format_s21",
     "format_s21_more", "s21_smith", "scale", "avg", "marker", "select_marker", "operations", "stimulus", "cfg_sweep",
-    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load", "measure", "transform", "window", "tx_power" };
+    "calibrate", "calibrate_standards", "config", "expert", "save", "recall", "sd_card", "sd_load", "measure", "transform", "window", "tx_power", "cal_kit", "kit_open", "kit_short", "kit_load" };
 static const uint8_t avg_vals[8] = { AVG_AUTO, 1, 2, 4, 8, 16, 32, 64 };
 static uint8_t menu_open, menu_id, menu_sel;
 static char sd_files[8][13]; static int sd_nfiles; static uint8_t sd_autoname = 1;
@@ -532,13 +536,30 @@ static int menu_len(int id) { int n = 0; while (n < MROWS && menus[id][n]) n++; 
 static uint32_t confirm_t; static uint8_t confirm_a;  /* actions that ask twice */
 static int confirming(int a) { return confirm_a == a && ms_ticks - confirm_t < 3000; }
 
+static float *kit_field(int a)                       /* the kit value an action edits */
+{
+    calkit_t *k = &calkit;
+    if (a < A_KOD) return &k->c[a - A_KC0];
+    if (a == A_KOD) return &k->od;
+    if (a < A_KSD) return &k->l[a - A_KL0];
+    if (a == A_KSD) return &k->sd;
+    if (a == A_KLR) return &k->lr;
+    if (a == A_KLL) return &k->ll;
+    if (a == A_KLD) return &k->ld;
+    return &k->td;
+}
+static void kit_changed(void)                        /* re-solve a calibration in hand with the new kit */
+{
+    if ((cal_have & 15) == 15) { uint8_t on = cal_on; if (cal_solve() == 0) cal_on = on; }
+    dirty |= D_GRAPH | D_LEGEND | D_READOUT;
+}
 enum { CK_NONE, CK_OFF, CK_ON, CK_DIM };            /* item decoration */
 static int item_label(int a, char *b)
 {
     static const char *const sub_n[MN_N] = {
         "HOME", "DISPLAY", "TRACE", "FORMAT S11", ">MORE", ">MORE", "SMITH", "FORMAT S21", ">MORE", "SMITH",
         "SCALE", "AVG", "MARKER", "SELECT MK", "OPERATIONS", "STIMULUS", "CFG SWEEP", "CALIBRATE", "CALIBRATE",
-        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD", "MEASURE", "TRANSFORM", "WINDOW", "TX POWER" };
+        "CONFIG", "EXPERT", "SAVE", "RECALL", "SD CARD", "LOAD", "MEASURE", "TRANSFORM", "WINDOW", "TX POWER", "CAL KIT", "OPEN", "SHORT", "LOAD" };
     char *p = b; *p = 0;
     if (a == A_BACK) { put_s(p, "< BACK"); return CK_NONE; }
     if (a >= A_SUB && a < A_SUB_END) { put_s(p, sub_n[a - A_SUB]); return CK_NONE; }
@@ -575,6 +596,11 @@ static int item_label(int a, char *b)
         static const char *const n[] = { "OFF", "L/C MATCH", "CABLE S11", "SHUNT LC", "SERIES L", "XTAL" };
         put_s(p, n[a - A_MS0]); return meas_mode == a - A_MS0 ? CK_ON : CK_OFF;
     }
+    if (a >= A_KC0 && a <= A_KTD) {
+        static const char *const n[] = { "C0 ", "C1 ", "C2 ", "C3 ", "DELAY ", "L0 ", "L1 ", "L2 ", "L3 ", "DELAY ", "R ", "L ", "DELAY ", "THRU DLY " };
+        p = put_s(p, n[a - A_KC0]); put_fx(p, *kit_field(a), 1); return CK_NONE;
+    }
+    if (a == A_KIDEAL) { put_s(p, "IDEAL"); return CK_NONE; }
     if (a >= A_TXP0 && a < A_TXPEND) {
         static const char *const n[] = { "2 mA", "4 mA", "6 mA", "8 mA" };   /* above 100 MHz: -4, -1, +2, +5 dBm */
         put_s(p, n[a - A_TXP0]); return sweep_cfg.txpower == a - A_TXP0 ? CK_ON : CK_OFF;
@@ -645,7 +671,6 @@ static int item_label(int a, char *b)
     case A_CISOLN: put_s(p, "ISOLN"); return cal_have & CAL_ISO_BIT ? CK_ON : CK_OFF;
     case A_CDONE: put_s(p, "DONE"); return CK_NONE;
     case A_CDONERAM: put_s(p, "DONE IN RAM"); return CK_NONE;
-    case A_CSTD: put_s(p, "CAL KIT"); return CK_DIM;
     case A_CSAVE: put_s(p, "SAVE"); return CK_DIM;
     case A_CRANGE: put_s(p, "RESET RANGE"); return CK_NONE;
     case A_CRESET: put_s(p, confirming(a) ? "SURE?" : "RESET"); return CK_NONE;
@@ -730,6 +755,20 @@ static const char *target_name(void)
     case A_MSRL: return "MEASURE: TERMINATION Rl (" OHM ")";
     case A_MSVF: return "VELOCITY FACTOR (0.1-1)";
     case A_TDSPAN: return "TIME SPAN (s; n p " MU "; 0 = full range)";
+    case A_KC0: return "OPEN C0 (fF)";
+    case A_KC0 + 1: return "OPEN C1 (1e-27 F/Hz)";
+    case A_KC0 + 2: return "OPEN C2 (1e-36 F/Hz2)";
+    case A_KC0 + 3: return "OPEN C3 (1e-45 F/Hz3)";
+    case A_KOD: return "OPEN OFFSET DELAY (ps)";
+    case A_KL0: return "SHORT L0 (pH)";
+    case A_KL0 + 1: return "SHORT L1 (1e-24 H/Hz)";
+    case A_KL0 + 2: return "SHORT L2 (1e-33 H/Hz2)";
+    case A_KL0 + 3: return "SHORT L3 (1e-42 H/Hz3)";
+    case A_KSD: return "SHORT OFFSET DELAY (ps)";
+    case A_KLR: return "LOAD RESISTANCE (" OHM ")";
+    case A_KLL: return "LOAD SERIES L (pH)";
+    case A_KLD: return "LOAD OFFSET DELAY (ps)";
+    case A_KTD: return "THRU DELAY (ps)";
     default: return "PORT IMPEDANCE (" OHM ")";
     }
 }
@@ -849,6 +888,9 @@ static void keypad_enter(float fmult, uint64_t hmult)
     case A_MSRL: if ((ok = parse_num(kb, fmult, &v) && v > 0)) meas_rl = v; break;
     case A_MSVF: if ((ok = parse_num(kb, fmult, &v) && v >= 0.1f && v <= 1)) meas_vf = v; break;
     case A_TDSPAN: if ((ok = parse_num(kb, fmult, &v) && v >= 0)) td_span = v; break;
+    default:
+        if (kp_target >= A_KC0 && kp_target <= A_KTD && (ok = parse_num(kb, fmult, &v)) && !(kp_target == A_KLR && v <= 0)) { *kit_field(kp_target) = v; kit_changed(); }
+        break;
     }
     if (!ok) say("not a valid value", 3000);
     grid_leave();
@@ -1001,6 +1043,8 @@ static void act(int a)
     if (a == A_MSRL || a == A_MSVF || a == A_TDSPAN) { grid_show(G_KEYPAD, a); return; }
     if (a == A_TDON) { td_set(!td_on); dirty |= D_FULL; return; }
     if (a == A_TDIMP || a == A_TDSTEP || a == A_TDBP) { td_mode = a == A_TDIMP ? TD_IMPULSE : a == A_TDSTEP ? TD_STEP : TD_BANDPASS; td_gen++; dirty |= D_FULL; return; }
+    if (a >= A_KC0 && a <= A_KTD) { grid_show(G_KEYPAD, a); return; }
+    if (a == A_KIDEAL) { calkit_t k = { { 0, 0, 0, 0 }, 0, { 0, 0, 0, 0 }, 0, 50, 0, 0, 0 }; calkit = k; kit_changed(); dirty |= D_MENU; return; }
     if (a >= A_TXP0 && a < A_TXPEND) {
         int lv = a - A_TXP0; vna_set_txpower(lv);
         say(lv == 0 ? "2 mA (-4 dBm above 100 MHz): the clean level, calibrate at it" : lv == 1 ? "4 mA (-1 dBm): clips below 100 MHz, clean above (measured)" : lv == 2 ? "6 mA (+2 dBm): clips the receiver on this board (measured)" : "8 mA (+5 dBm): clips the receiver on this board (measured)", 5000);
@@ -1025,7 +1069,7 @@ static void act(int a)
     switch (a) {
     case A_BACK: if (menu_id == MN_HOME) menu_close(); else menu_show(menu_parent[menu_id]); return;
     case A_PAUSE: sweep_running = !sweep_running; if (!sweep_running) synth_all_off(); dirty |= D_MENU | D_STATUS; return;
-    case A_CSTD: case A_BRIGHT:
+    case A_BRIGHT:
         say("not built yet: see the plan in NOTES.md (stage 12)", 3000); return;
     case A_CHANNEL: tr[tr_act].ch ^= 1; if (tr[tr_act].fmt >= F_S21SR && !tr[tr_act].ch) set_format(F_LOGMAG, 0); dirty |= D_FULL; return;
     case A_SCALEDIV: case A_REFVAL: case A_REFPOS: case A_EDELAY: case A_S21OFF: case A_PORTZ:
@@ -1716,7 +1760,7 @@ typedef struct {
     uint8_t tr_act, mk_act, mk_delta, mk_tracking, search_min, grid_values, dot_grid, avg;
     uint32_t jog_step; float edelay, s21_offset, port_z;
 } ui_state_t;
-typedef struct { float ax, bx, ay, by; uint8_t swap, flipped, touch_ok, pad; } ui_cfg_t;
+typedef struct { float ax, bx, ay, by; uint8_t swap, flipped, touch_ok, pad; calkit_t kit; } ui_cfg_t;
 int ui_state_size(void) { return sizeof(ui_state_t); }
 static void bcopy_(void *d, const void *s, int n) { uint8_t *a = d; const uint8_t *b = s; while (n--) *a++ = *b++; }
 void ui_state_get(uint8_t *b)
@@ -1740,7 +1784,7 @@ void ui_state_put(const uint8_t *b)
 }
 int ui_cfg_get(uint8_t *b)
 {
-    ui_cfg_t c = { tm_ax, tm_bx, tm_ay, tm_by, tm_swap, flipped, touch_ok, 0 };
+    ui_cfg_t c = { tm_ax, tm_bx, tm_ay, tm_by, tm_swap, flipped, touch_ok, 0, calkit };
     bcopy_(b, &c, sizeof c); return sizeof c;
 }
 void ui_cfg_put(const uint8_t *b, int n)
@@ -1748,6 +1792,7 @@ void ui_cfg_put(const uint8_t *b, int n)
     if (n != (int)sizeof(ui_cfg_t)) return;
     ui_cfg_t c; bcopy_(&c, b, sizeof c);
     tm_ax = c.ax; tm_bx = c.bx; tm_ay = c.ay; tm_by = c.by; tm_swap = c.swap; touch_ok = c.touch_ok;
+    if (c.kit.lr > 0) calkit = c.kit;
     if (c.flipped != flipped) { flipped = c.flipped; madctl ^= 0xC0; if (lcd_ready) lcd_cmd(0x36, &madctl, 1); }
 }
 void ui_redraw_full(void) { dirty |= D_FULL; td_gen++; }
@@ -2019,6 +2064,23 @@ void ui_command(int argc, char **argv)
     if (streq(c, "marker")) { cmd_marker(argc, argv); if (ui_on && lcd_ready && dirty) render(); return; }
     if (streq(c, "display")) { cmd_display(argc, argv); if (ui_on && lcd_ready && dirty) render(); return; }
     if (streq(c, "ui")) { cmd_ui(argc, argv); return; }
+    if (streq(c, "calkit")) {                        /* calkit [ideal|open c0 c1 c2 c3 delay|short l0 l1 l2 l3 delay|load r l delay|thru delay] */
+        float v[5]; int nv = argc - 2, ok = 1;
+        for (int k = 0; k < nv && k < 5; k++) if (!parse_num(argv[2 + k], 1, &v[k])) ok = 0;
+        if (argc == 2 && streq(argv[1], "ideal")) { calkit_t k0 = { { 0, 0, 0, 0 }, 0, { 0, 0, 0, 0 }, 0, 50, 0, 0, 0 }; calkit = k0; }
+        else if (ok && nv == 5 && streq(argv[1], "open")) { for (int k = 0; k < 4; k++) calkit.c[k] = v[k]; calkit.od = v[4]; }
+        else if (ok && nv == 5 && streq(argv[1], "short")) { for (int k = 0; k < 4; k++) calkit.l[k] = v[k]; calkit.sd = v[4]; }
+        else if (ok && nv == 3 && streq(argv[1], "load") && v[0] > 0) { calkit.lr = v[0]; calkit.ll = v[1]; calkit.ld = v[2]; }
+        else if (ok && nv == 1 && streq(argv[1], "thru")) calkit.td = v[0];
+        else if (argc != 1) { con_puts("usage: calkit [ideal | open <C0 fF> <C1> <C2> <C3> <delay ps> | short <L0 pH> <L1> <L2> <L3> <delay ps> | load <R ohm> <L pH> <delay ps> | thru <delay ps>]\r\n"); return; }
+        if (argc != 1) kit_changed();
+        con_puts("open"); for (int k = 0; k < 4; k++) { con_putc(' '); put_g(calkit.c[k]); } con_puts(" delay "); put_g(calkit.od);
+        con_puts(" short"); for (int k = 0; k < 4; k++) { con_putc(' '); put_g(calkit.l[k]); } con_puts(" delay "); put_g(calkit.sd);
+        con_puts(" load "); put_g(calkit.lr); con_putc(' '); put_g(calkit.ll); con_puts(" delay "); put_g(calkit.ld);
+        con_puts(" thru delay "); put_g(calkit.td); con_puts("\r\n");
+        if (ui_on && lcd_ready) render();
+        return;
+    }
     if (streq(c, "transform")) {                     /* transform [on|off|impulse|step|bandpass|window min|normal|max] */
         for (int k = 1; k < argc; k++) {
             const char *a = argv[k];

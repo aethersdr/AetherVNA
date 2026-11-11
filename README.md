@@ -65,6 +65,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 17: stored traces A-D (6.3 KB of RAM reclaimed for them) | Done |
 | 18: TRANSFORM: time domain (low-pass impulse/step, band pass, Kaiser windows, span), checked against an ideal line | Done |
 | 19: TX POWER (stimulus level), measured: only level 0 is clean below 100 MHz | Done |
+| 20: CAL KIT: open/short/load/thru standards model, checked against a synthetic error box | Done |
 | Later: the remaining stock menus (NOTES.md, stage 12), open/short level check above 1 GHz | Planned |
 
 ## Build and flash
@@ -89,6 +90,7 @@ commands follow NanoVNA-D so existing tools can drive it:
 | `scan <start> <stop> [points] [outmask]` | one sweep; outmask 1 freq, 2 S11, 4 S21, 8 uncalibrated |
 | `sweep`, `data [0\|1]`, `frequencies`, `pause`, `resume` | as NanoVNA-D |
 | `cal open\|short\|load\|thru\|done\|on\|off\|reset` | one-path SOLT on the device (RAM only for now) |
+| `calkit [ideal\|open\|short\|load\|thru ..]` | calibration standards model (kept by `config save`) |
 | `cal get <std\|terms>`, `cal put <std> <i> <4 values>` | read standards and error terms; restore a saved calibration |
 | `flags` | per point: tuned frequency, reference level, ok/clip/lowref/range |
 | `gain [auto\|0..3]`, `avg [auto\|n]`, `retune [0\|1]`, `bracket [0\|1]`, `settle`, `tsettle`, `power [0-3]` | measurement settings |

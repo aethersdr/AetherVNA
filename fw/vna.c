@@ -485,23 +485,59 @@ static int solve3(cpx a[3][4], cpx x[3])
     return 0;
 }
 static cpx corr11(cpx gm, const terms_t *t) { return c_div(c_sub(gm, t->e00), c_sub(c_mul(gm, t->e11), t->de)); }
+/* ---------- calibration kit: what the standards actually are ----------
+ * Open: C(f) = C0 + C1 f + C2 f^2 + C3 f^3 (fF, 1e-27 F/Hz, 1e-36, 1e-45)
+ * at the end of a lossless 50 ohm offset of delay od (ps); short: L(f) the
+ * same way (pH, 1e-24 H/Hz, 1e-33, 1e-42), delay sd; load: R in series with
+ * L (pH), delay ld; thru: delay td. All zero (and 50 ohm) is the ideal kit. */
+calkit_t calkit = { { 0, 0, 0, 0 }, 0, { 0, 0, 0, 0 }, 0, 50, 0, 0, 0 };
+static void kit_sincos(float x, float *s, float *c)  /* |x| reduced to -pi..pi, Taylor to x^9 */
+{
+    const float pi = 3.14159265f;
+    float k = (float)(int)(x * (1 / (2 * pi)) + (x >= 0 ? 0.5f : -0.5f)); x -= k * 2 * pi;
+    int neg = 0; if (x > pi / 2) { x = pi - x; neg = 1; } else if (x < -pi / 2) { x = -pi - x; neg = 1; }
+    float x2 = x * x;
+    *s = x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72))));
+    float cc = 1 - x2 / 2 * (1 - x2 / 12 * (1 - x2 / 30 * (1 - x2 / 56)));
+    *c = neg ? -cc : cc;
+}
+static cpx delay_g(float w, float ps, int twice)    /* e^(-j w tau), or e^(-j 2 w tau) */
+{
+    float s, c; kit_sincos(-(twice ? 2 : 1) * w * ps * 1e-12f, &s, &c); return c_mk(c, s);
+}
+static cpx gamma_z(cpx z) { return c_div(c_sub(z, c_mk(50, 0)), c_add(z, c_mk(50, 0))); }
+static void kit_gammas(float f, cpx *go, cpx *gs, cpx *gl)
+{
+    float w = 2 * 3.14159265f * f, f2 = f * f, f3 = f2 * f;
+    float C = (calkit.c[0] + calkit.c[1] * 1e-12f * f + calkit.c[2] * 1e-21f * f2 + calkit.c[3] * 1e-30f * f3) * 1e-15f;
+    float L = (calkit.l[0] + calkit.l[1] * 1e-12f * f + calkit.l[2] * 1e-21f * f2 + calkit.l[3] * 1e-30f * f3) * 1e-12f;
+    cpx o = C > 0 && w > 0 ? gamma_z(c_mk(0, -1 / (w * C))) : c_mk(1, 0);
+    cpx s = L != 0 ? gamma_z(c_mk(0, w * L)) : c_mk(-1, 0);
+    cpx l = gamma_z(c_mk(calkit.lr, w * calkit.ll * 1e-12f));
+    *go = c_mul(o, delay_g(w, calkit.od, 1)); *gs = c_mul(s, delay_g(w, calkit.sd, 1)); *gl = c_mul(l, delay_g(w, calkit.ld, 1));
+}
 int cal_solve(void)
 {
     if ((cal_have & 15) != 15) return -1;
     for (int i = 0; i < cal_cfg.points; i++) {
         cpx mo = std_open[i], ms = std_short[i], ml = std_load[i];
+        float f = cal_cfg.points > 1 ? (float)cal_cfg.start + (float)(cal_cfg.stop - cal_cfg.start) * i / (cal_cfg.points - 1) : (float)cal_cfg.start;
+        cpx go, gs, gl; kit_gammas(f, &go, &gs, &gl);
+        /* e00 + G Gm e11 - G de = Gm for each standard's actual G */
         cpx a[3][4] = {
-            { c_mk(1, 0), mo, c_mk(-1, 0), mo },
-            { c_mk(1, 0), c_mk(-ms.re, -ms.im), c_mk(1, 0), ms },
-            { c_mk(1, 0), c_mk(0, 0), c_mk(0, 0), ml },
+            { c_mk(1, 0), c_mul(go, mo), c_mk(-go.re, -go.im), mo },
+            { c_mk(1, 0), c_mul(gs, ms), c_mk(-gs.re, -gs.im), ms },
+            { c_mk(1, 0), c_mul(gl, ml), c_mk(-gl.re, -gl.im), ml },
         };
         cpx x[3];
         if (solve3(a, x) < 0) return -2;
         terms_t *t = &terms[i];
         t->e00 = x[0]; t->e11 = x[1]; t->de = x[2];
         t->e30 = std_iso[i];
-        t->e22 = corr11(std_t11[i], t);
-        t->e10e32 = c_mul(c_sub(std_t21[i], t->e30), c_sub(c_mk(1, 0), c_mul(t->e11, t->e22)));
+        cpx T = delay_g(2 * 3.14159265f * f, calkit.td, 0);   /* the thru's own transmission */
+        cpx g = corr11(std_t11[i], t);               /* port 2's match as seen through the thru: T^2 e22 */
+        t->e22 = c_div(g, c_mul(T, T));
+        t->e10e32 = c_div(c_mul(c_sub(std_t21[i], t->e30), c_sub(c_mk(1, 0), c_mul(t->e11, g))), T);
         service();
     }
     terms_ok = 1; cal_on = 1;

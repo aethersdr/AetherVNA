@@ -180,6 +180,7 @@ static void cmd_help(void)
 {
     con_puts("measurement: scan <start> <stop> [points] [outmask] | sweep [start stop [points]] | data [0|1] |\r\n"
              "  frequencies | cal [open|short|load|thru|isoln|done|on|off|reset|enhanced [0|1]] | cal get <std|terms> |\r\n"
+             "  calkit [ideal|open ..|short ..|load ..|thru ..] |\r\n"
              "  cal put <std> <i> <s11re> <s11im> <s21re> <s21im> | pause | resume | flags |\r\n"
              "  settle [samples] | tsettle [us] | avg [auto|n] | gain [auto|0..3] | bracket [0|1] | retune [0|1] | power [0-3]\r\n"
              "display: trace [1-4 [...]] (trace 1 x for the formats) | marker [1-8 [...]|delta|tracking|jogstep] |\r\n"
@@ -311,7 +312,7 @@ void console_line(char *line)
         if (argv_[2][0] == 'r') pin_input((uint8_t)pp, 0); else pin_out((uint8_t)pp, argv_[2][0] == '1');
         con_puts("ok\r\n");
     }
-    else if (streq(c, "lcd") || streq(c, "backlight") || streq(c, "touch") || streq(c, "trace") || streq(c, "marker") || streq(c, "display") || streq(c, "ui") || streq(c, "measure") || streq(c, "point") || streq(c, "transform")) ui_command(argc_, argv_);
+    else if (streq(c, "lcd") || streq(c, "backlight") || streq(c, "touch") || streq(c, "trace") || streq(c, "marker") || streq(c, "display") || streq(c, "ui") || streq(c, "measure") || streq(c, "point") || streq(c, "transform") || streq(c, "calkit")) ui_command(argc_, argv_);
     else if (streq(c, "sd")) sd_command(argc_, argv_);
     else if (streq(c, "power")) {                    /* NanoVNA-D's name: stimulus level 0-3 */
         uint64_t p;

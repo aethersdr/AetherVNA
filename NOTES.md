@@ -907,6 +907,27 @@ below 100 MHz), so level 0 is the one to use; level 1 is clean above 100
 MHz. The menu says so when a level is chosen. (This run used the high band
 briefly: HF readings below 1.5 MHz need about 15 minutes to settle after.)
 
+## Stage 20: CAL KIT, the standards model (2026-11-11)
+
+CALIBRATE > CALIBRATE > CAL KIT: OPEN (C0-C3, offset delay), SHORT (L0-L3,
+offset delay), LOAD (R, series L, offset delay), THRU DLY, IDEAL; console
+`calkit [ideal|open ..|short ..|load ..|thru ..]`; kept by SAVE CONFIG; a
+change re-solves the calibration in hand. Units: fF, 1e-27 F/Hz, 1e-36,
+1e-45; pH, 1e-24 H/Hz, 1e-33, 1e-42; ps; ohm.
+
+The solve uses each standard's actual reflection (e00 + G Gm e11 - G de =
+Gm with G from the model, offsets as lossless 50 ohm lines), and the thru's
+delay T is taken out of both port 2 terms: e22 = g / T^2 and e10e32 =
+(S21m - e30)(1 - e11 g) / T, g being port 2's match seen through the thru.
+With the ideal kit this is exactly the previous solve (the host's
+calibrate.py still matches it).
+
+Checked with a synthetic error box (e00 0.08+j0.03, e11 0.15-j0.1, tracking
+0.85 with 200 ps), non-ideal standards (open 80 fF behind 30 ps, short 40 pH
+behind 25 ps, load 50 ohm + 100 pH, thru 50 ps) and a 25 ohm + 1 nH DUT,
+100 MHz-3 GHz: with that kit entered, R 25.0000 ohm and X = wL to 0.0001
+ohm at every point; with the ideal kit, up to 3.0 ohm and 22.9 ohm off.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch

@@ -186,7 +186,7 @@ static void cmd_help(void)
              "  display [edelay|s21offset|portz|gridvalues|dotgrid|flip] |\r\n"
              "  ui [state|tap <x> <y>|jog l|r|L|R|rr|menu <name>|select <row>|redraw] | touch [cal|map [ax bx ay by swap]] |\r\n"
              "  lcd [init|test|ui [nosweep]|off|capture|madctl <hex>|inv 0|1|marker <i>|status] | backlight [0|1]\r\n"
-             "instrument: version | info | vbat | temp | clk [tcxo] |\r\n"
+             "instrument: version | info | vbat | temp | clk [tcxo] | sd [status|probe|cs <pin>|init|mount|ls|verify|write] |\r\n"
              "  bootloader | reset\r\n"
              "diagnostics: raw <freq> | tune <freq> | ms r <reg> <n> | ms w <reg> <v>... | mx <le pin> <hex> | pin <code> <0|1|r>\r\n"
              "frequencies take k, M, G suffixes; outmask: 1 freq, 2 S11, 4 S21, 8 uncalibrated\r\n");
@@ -311,6 +311,7 @@ void console_line(char *line)
         con_puts("ok\r\n");
     }
     else if (streq(c, "lcd") || streq(c, "backlight") || streq(c, "touch") || streq(c, "trace") || streq(c, "marker") || streq(c, "display") || streq(c, "ui")) ui_command(argc_, argv_);
+    else if (streq(c, "sd")) sd_command(argc_, argv_);
     else if (streq(c, "bootloader") || streq(c, "reset")) {
         if (jog_pressed()) { con_puts("error: the jog is pressed; a reset now would start the ROM bootloader\r\n"); return; }
         if (streq(c, "bootloader")) { con_puts("entering bootloader\r\n"); enter_bootloader(); }

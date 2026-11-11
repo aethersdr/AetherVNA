@@ -31,5 +31,11 @@ char *put_fx(char *p, float v, int dec);
 char *put_sfx(char *p, float v, int dec);
 char *put_freq(char *p, uint64_t f);
 
+/* SPI1, shared by the panel, the touch controller and the microSD slot */
+extern uint8_t spi_ready;
+void spi_init(void);
+void spi_speed(int slow);                    /* 1: 375 kHz, 0: 12 MHz */
+uint8_t spi_xfer(uint8_t b);
+
 uint16_t tsc_read(uint8_t cmd);              /* TSC2046 command byte, 12-bit result */
 uint16_t vbat_counts(void);

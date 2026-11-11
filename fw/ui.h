@@ -3,3 +3,4 @@
 void ui_background(void);
 void ui_redraw(void);
 void ui_command(int argc, char **argv);
+void sd_command(int argc, char **argv);   /* sd.c */

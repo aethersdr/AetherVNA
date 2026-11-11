@@ -683,13 +683,54 @@ code.
   Still to come: 2) save/recall slots 0-6, save/clear config (flash);
   3) measure modes (L/C match, cable, shunt LC, series L, crystal, Rl);
   4) transform (time domain) and stored traces (need RAM); 5) SD card
-  (the slot shares SPI1 with the LCD and touch; its chip select is to be
-  found); 6) brightness (PA5 PWM?), TX power, calibration standard model,
+  files (the driver and FAT32 are stage 13); 6) brightness (PA5 PWM?), TX power, calibration standard model,
   expert settings.
 - Console mirror: `trace`, `marker`, `display`, `ui state|tap|jog|menu|select`, `touch cal|map`.
   `lcd capture` redraws the screen while streaming every window's pixels
   as RGB565 runs; `host/screenshot.py` rebuilds a PNG (480x320 in about 2 s).
   The menus, keypad and band grid were driven and checked this way.
+
+## Stage 13: the microSD slot (2026-11-11)
+
+The LQFP48 AT32F403A has no SDIO pins, so the slot runs in SPI mode; the
+only free SPI is SPI1, shared with the panel and the touch controller
+(PB3 SCK, PB4 MISO, PB5 MOSI). `sd probe` (approved by the maintainer, card
+inserted) drove each unassigned pin high, then low for one CMD0 at 375 kHz
+after 80 idle clocks, then back to a floating input; PB10/PB11 excluded.
+
+| Pin | R1 to CMD0 |
+|---|---|
+| PA9, PA10, PB0, PB2, PB12, PC13 | 0xFF (nothing) |
+| **PB9** | **0x01 (idle): the card's chip select** |
+
+The maintainer's test card (2 GB, CID name SA02G, MBR, FAT32 at LBA 8192,
+4 KiB clusters, VERIFY.TXT, PATTERN.BIN with byte i = i ^ ((i >> 9) * 37)):
+
+| Check | Result |
+|---|---|
+| `sd init` | SDSC (byte addressed), CID "SA02G" rev 0.7, CSD 1858 MiB |
+| `sd mount` | MBR type 0x0C at 8192, 3,796,992 sectors; 473,694 clusters, label "AetherVNA" |
+| `sd ls` | VERIFY.TXT 390 B, PATTERN.BIN 262,144 B, 66 clusters used (fsck's figure) |
+| VERIFY.TXT | CRC32 0x464177C7, first line "AETHERVNA SD TEST v1" |
+| PATTERN.BIN | every byte matches, CRC32 0x81CB8188, 1.26 s (single-block reads, 12 MHz) |
+| `sd write` | WRITE.TXT, 18 bytes, cluster 68; both FATs and FSInfo updated; 67 clusters used |
+
+**A bug found by the write test, and the repair.** The first `sd write`
+gave WRITE.TXT cluster 3, PATTERN.BIN's first cluster: the driver cached a
+FAT sector in a buffer borrowed from adc_buf, and between console commands
+the display and the background sweep reuse that memory, so the stale cache
+read cluster 3 as free. It overwrote PATTERN.BIN's first sector and ended
+its chain at cluster 3. The cache is now dropped at the start of every
+command. Repair, from known contents: FAT[3] back to 4 in both FATs
+(`sd fatrange` showed 4..66 intact), cluster 3's first sector rewritten from
+the formula (`sd patsec`), the bad entry unlinked without freeing its
+cluster, FSInfo's free count restored (473,628; next hint unknown); then
+PATTERN.BIN verified again (CRC32 0x81CB8188) and the write redone
+correctly. Expected on the PC: fsck.fat "4 files, 67/473694 clusters",
+clean, and WRITE.TXT = "AETHERVNA WRITE OK".
+
+No card-detect line was found (not looked for: it needs the card removed).
+Next: S1P/S2P, screen and calibration files from the SD CARD menu.
 
 ## Recovery
 
@@ -725,4 +766,6 @@ recording (2026-11-10).
   drift (characterised: not tracked by the MCU sensor; recalibrate near the
   measurement below 1.5 MHz).
 - Stage 12: stock-style UI with Smith chart, menus, touch and jog, console
-  mirror and screen capture. Next: touch map, settings and calibration in flash.
+  mirror and screen capture; menu tree after the stock map, phase 1.
+- Stage 13: microSD on SPI1 with chip select PB9; FAT32 read and write
+  checked against the maintainer's test card. Next: touch map, settings and calibration in flash.

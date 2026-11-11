@@ -22,8 +22,8 @@ extern const uint8_t x5x7_bits[];
 #define FONT_LAST  0x7E
 
 /* ---------- SPI1 (PB3 SCK, PB4 MISO, PB5 MOSI; remapped) ---------- */
-static uint8_t spi_ready;
-static void spi_init(void)
+uint8_t spi_ready;
+void spi_init(void)
 {
     pin_cfg(P_LCD_SCK, 0xB); pin_cfg(P_LCD_MOSI, 0xB);   /* alternate function push-pull */
     pin_input(P_TOUCH_MISO, 1);
@@ -35,14 +35,14 @@ static void spi_init(void)
 }
 static inline void spi_tx(uint8_t b) { while (!(SPI_STS & 2)) ; SPI_DT = b; }
 static void spi_idle(void) { while (!(SPI_STS & 2)) ; while (SPI_STS & 0x80) ; }
-static void spi_speed(int slow)
+void spi_speed(int slow)
 {
     spi_idle();
     SPI_CTRL1 &= ~(1u << 6);
     SPI_CTRL1 = (SPI_CTRL1 & ~(7u << 3)) | ((slow ? 6u : 1u) << 3);   /* /128 (375 kHz) or /4 */
     SPI_CTRL1 |= 1u << 6;
 }
-static uint8_t spi_xfer(uint8_t b)
+uint8_t spi_xfer(uint8_t b)
 {
     while (SPI_STS & 1) (void)SPI_DT;
     while (!(SPI_STS & 2)) ;

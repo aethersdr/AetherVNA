@@ -1,12 +1,22 @@
 AetherVNA: open, API-driven firmware for the LiteVNA
 ====================================================
 
-*Named AetherVNA until 2026-11-11; the old repository URL redirects here.*
+*Named LiteVNAAI until 2026-11-11; the old repository URL redirects here.*
 
 **Work in progress.** An independent, clean-room firmware for the LiteVNA 64
 vector network analyzer, maintained by the [AetherSDR](https://github.com/aethersdr/AetherSDR)
 project. It is not affiliated with Zeenko, the LiteVNA's maker, or with the
 authors of its stock firmware.
+
+## Hardware required
+
+**AetherVNA runs only on a LiteVNA, model LiteVNA 64** (Zeenko), and has
+been tested on one unit, hardware revision 2 (AT32F403A, MS5351M, two
+MAX2871, 24 MHz TCXO, 480x320 display). It is not for NanoVNA V2 or other
+LiteVNA models: the pin map, synthesizers and front end were measured on
+this board (NOTES.md) and are not checked against any other. It installs
+behind the LiteVNA 64's own bootloader, which it never writes, so the stock
+firmware can be put back at any time.
 
 ## Why
 

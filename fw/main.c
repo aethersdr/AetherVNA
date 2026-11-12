@@ -174,10 +174,14 @@ int main(void)
     store_boot();                   /* config and slot 0, if saved */
     last_cyc = DWT_CYCCNT;
     int was_configured = 0;
+    uint32_t host_since = 0; int host_timing = 0;   /* since a host was first seen, not boot: a hot plug after a battery boot gets its 10 s too */
     for (;;) {
         service();
         if (usb_configured()) was_configured = 1;
-        else if (!was_configured && usb_host_seen && ms_ticks > 10000) enter_bootloader();   /* host present, no console: hand over */
+        else if (!was_configured && usb_host_seen) {     /* host present, no console for 10 s: hand over */
+            if (!host_timing) { host_timing = 1; host_since = ms_ticks; }
+            else if (ms_ticks - host_since > 10000) enter_bootloader();
+        } else if (!was_configured) host_timing = 0;
         usb_take_line();
         temp_tick();                    /* the MCU sensor every 2 s, between sweep points */
         vna_background();               /* continuous sweep when running */

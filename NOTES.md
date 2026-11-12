@@ -1134,8 +1134,8 @@ host session are refused and must be redone. The guard, on a throwaway
 build delaying the first boundary by 120 cycles: on alternate captures,
 `raw` showed `missed 2` on the delayed ones and a 5-point scan came back
 all `ok` after 5 recaptures; on every capture, all 5 points were flagged
-`missed` after 3 recaptures each. Not checked on the unit: SD files
-under the new magic (saving needs the screen on).
+`missed` after 3 recaptures each. SD files under the new magic: checked
+below.
 
 The bench's hf55 host calibration redone on 359e704 (aether-fabric
 bench/litevna/records, session `2026-11-11-fw359e704`): the raw standards
@@ -1148,6 +1148,27 @@ most 0.003 dB and 0.06 deg; recaptures 0. The 50 kHz steps that followed
 the screen on rev-1 builds were lost conversions, and a calibration need
 not match the screen state. Still open: 0.3 MHz ramped +0.027 dB over a
 few sweeps with the display sweeping, faster than stage 23's 240 s lag.
+
+Slot 1 redone by the maintainer on 359e704 (HF 101 points, 50 kHz-55.05
+MHz, avg 4x; open, short, load with the port-2 cable open, thru; no
+isolation). Its own correction of the thru, left on and read straight
+after with the screen off (`scan`, `data`, four sweeps averaged): 50 kHz
++0.0005 dB, -0.03 deg (stage 22: 1.7 deg); 0.6 MHz +0.005 dB (stage 22:
+a +0.018 dB hump); 1.8-55 MHz -0.002..+0.002 dB, -0.05..+0.09 deg, S11
+-48.9 dB at worst; no flagged points. The thru was the last standard, so
+this checks the thru path only; the short, open and load were not re-read.
+
+SD calibration files under the new magic, with the screen on: `sd save
+cal` wrote AVNA0002.CAL, 6512 bytes, magic AVNACAL2. After `cal reset`,
+`sd load` restored every standard and term (`cal get` of all five, 505
+lines, byte-identical) and the calibration's temperature (1440.26 mV);
+SD CARD > LOAD of the same file did the same. LOAD of AVNA0001.CAL
+(AVNACAL1, stage 23) said "refused: made under an older capture timing"
+and left the calibration in hand unchanged. The console's `sd load` said
+"not a calibration file" for it; 9590723 names the refusal. On 9590723:
+59 cycles over at 50 kHz, 1 MHz, 54 MHz, 100 MHz, 1 GHz and 6 GHz, and on
+the first two captures after a redraw with the screen on, missed 0;
+RECALL 1 gave the same 505 lines as before the reflash.
 
 ## Recovery
 

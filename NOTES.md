@@ -1137,6 +1137,18 @@ all `ok` after 5 recaptures; on every capture, all 5 points were flagged
 `missed` after 3 recaptures each. Not checked on the unit: SD files
 under the new magic (saving needs the screen on).
 
+The bench's hf55 host calibration redone on 359e704 (aether-fabric
+bench/litevna/records, session `2026-11-11-fw359e704`): the raw standards
+moved -14.7..-14.8 deg (thru S21) and -7.2..-7.5 deg (open, short S11)
+from the stage 23 session, magnitudes within 0.03 dB: the two lost
+conversions coming back out, nothing else. Corrected, a short with the
+screen drawn (paused) against off differed by at most 0.004 dB anywhere
+in 50 kHz-55 MHz, and a thru at 50 kHz with the display sweeping by at
+most 0.003 dB and 0.06 deg; recaptures 0. The 50 kHz steps that followed
+the screen on rev-1 builds were lost conversions, and a calibration need
+not match the screen state. Still open: 0.3 MHz ramped +0.027 dB over a
+few sweeps with the display sweeping, faster than stage 23's 240 s lag.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch

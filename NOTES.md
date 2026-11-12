@@ -1170,6 +1170,40 @@ and left the calibration in hand unchanged. The console's `sd load` said
 the first two captures after a redraw with the screen on, missed 0;
 RECALL 1 gave the same 505 lines as before the reflash.
 
+## Stage 25: a cold boot on battery; a hot plug after one (2026-11-11)
+
+Found by the maintainer: with USB unplugged, a power cycle left the unit
+restarting about every 5 s. Noise on the floating data lines read as a
+bus reset; stage 22's enumeration watchdog took it for a host failing to
+enumerate, restarted USB twice and then reset the chip, and every boot did
+the same. A system reset is not a watchdog reset, so the boot guard never
+counted it. Confirmed before the fix: `usb` chip-resets-for-usb went from 2
+to 8 over a 30 s reproduction, plugged back in without powering off.
+
+The same false reset also marked a host present, and the main loop handed
+over to Zeenko's bootloader once a host had been seen with no console
+configured and the clock past 10 s from boot. With the loop fixed, that
+showed: plugging USB in more than 10 s after a battery boot went straight
+to the bootloader (blank screen, 04b4:0008).
+
+Fixed in cbda8fb and 7487574:
+- a host counts only after 3 SOFs or a SETUP following a bus reset; without
+  one the enumeration watchdog stands down (`usb` counts `noise-resets`
+  and shows `host`). A real host sends an SOF every millisecond, and the
+  USB clock runs from the TCXO, so the stage 22 hot-replug recovery still
+  sees one;
+- the 10 s no-console hand-over runs from when a host is first seen, not
+  from boot, so a broken image plugged in at power-on still hands over.
+
+Checked: power cycle on battery, up past 15 s, then USB plugged in: it
+stayed up and enumerated as AetherVNA, `noise-resets 1`, `restarts 0`; a
+console `usb restart` still re-enumerates; capture 59 cycles over at
+50 kHz, 54 MHz, 1 GHz and 6 GHz, missed 0. On the way, a build (not kept)
+timed the hand-over from `ms_ticks | 1`, which wraps when the tick is
+even and handed over at once when a host appeared; Zeenko's bootloader
+then looked stuck, because each reboot ran that build. Flashed over from
+the bootloader.
+
 ## Recovery
 
 **End every probe session with a real power cycle** (USB unplugged, switch
@@ -1220,3 +1254,5 @@ recording (2026-11-10).
   calibrations record it and warn; a correction is built, off until validated.
 - Stage 24: two conversions lost per capture since stage 21: fixed, guarded,
   calibrations marked with the capture timing (older ones refused).
+- Stage 25: no reset loop on a cold boot with USB unplugged; a hot plug after
+  a battery boot enumerates instead of handing over to the bootloader.

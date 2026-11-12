@@ -70,6 +70,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 22: USB hot replug (polled USB served during enumeration, USB clock from the TCXO, a USB watchdog) | Done |
 | 23: low-band temperature drift: tracked by the MCU sensor with a 240 s lag; calibrations record it, the screen warns when it moves; a 0.1-2 MHz correction, off until validated | Done (warning); correction gated |
 | 24: capture timing: the two conversions lost per capture since stage 21 restored, a recapture guard, calibrations marked with the capture timing (older ones refused) | Done |
+| 25: cold boot on battery: a bus reset counts only when a host follows it (no reset loop unplugged); the no-console hand-over timed from the host's arrival (a hot plug enumerates) | Done |
 | Later: open/short level check above 1 GHz, the near-integer MAX2871 states, validating the temperature correction | Planned |
 
 ## Build and flash

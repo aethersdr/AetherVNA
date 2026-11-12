@@ -832,7 +832,8 @@ void sd_command(int argc, char **argv)
     }
     if (streq(a, "load") && argc == 3) {
         int r = sd_load_cal(argv[2]);
-        con_puts(r == 0 ? "ok: calibration and its sweep loaded\r\n" : r == -2 ? "error: not found\r\n" : r == -4 ? "error: saved by another firmware layout\r\n" : "error: not a calibration file\r\n");
+        con_puts(r == 0 ? "ok: calibration and its sweep loaded\r\n" : r == -2 ? "error: not found\r\n" : r == -4 ? "error: saved by another firmware layout\r\n" :
+                r == -5 ? "error: refused: made under an older capture timing, recalibrate\r\n" : "error: not a calibration file\r\n");
         return;
     }
     if (streq(a, "hex") && argc == 3) {              /* the whole file in hex, 32 bytes a line */

@@ -118,7 +118,7 @@ int store_save(int n)
     uint8_t have = 0;
     if (cal_range(&cs, &ce, &cn) == 0 && cs == sweep_cfg.start && ce == sweep_cfg.stop && cn == sweep_cfg.points) have = cal_have;
     float tmv = 0; uint8_t has_t = have && cal_temp_get(&tmv) == 0;
-    uint8_t c[4] = { have, cal_on, cal_enhanced, has_t };   /* byte 3: 1 = the calibration's temperature (float, mV) follows */
+    uint8_t c[4] = { have, cal_on, cal_enhanced, (uint8_t)(has_t | CAPTURE_REV << 4) };   /* byte 3: bit 0 the calibration's temperature (float, mV) follows; bits 4-7 the capture timing */
     wbytes(&w, c, 4);
     if (has_t) wbytes(&w, &tmv, sizeof tmv);
     for (int k = 0; k <= CAL_ISOLN; k++) if (have & (1u << k))
@@ -141,9 +141,11 @@ int store_recall(int n)
     for (unsigned i = 0; i < sizeof sweep_cfg; i++) d[i] = *p++;
     vna_restart();
     ui_state_put(p); p += ui_state_size();
-    uint8_t have = p[0], on = p[1], enh = p[2], has_t = p[3] == 1; p += 4;
+    uint8_t have = p[0], on = p[1], enh = p[2], has_t = p[3] & 1, rev = p[3] >> 4; p += 4;
     float tmv = 0; if (has_t) { uint8_t *t = (uint8_t *)&tmv; for (unsigned j = 0; j < sizeof tmv; j++) t[j] = *p++; }
     cal_reset(); cal_enhanced = enh;
+    int refused = have && rev != CAPTURE_REV;       /* raw phases differ under another capture timing */
+    if (refused) have = 0;
     for (int k = 0; k <= CAL_ISOLN; k++) if (have & (1u << k))
         for (int i = 0; i < sweep_cfg.points; i++) {
             cpx a = c_mk(0, 0), b = c_mk(0, 0);
@@ -152,10 +154,10 @@ int store_recall(int n)
             if (k >= CAL_LOAD) { q = p; uint8_t *t = (uint8_t *)&b; for (unsigned j = 0; j < sizeof b; j++) t[j] = q[j]; p += sizeof b; }
             cal_std_put(k, i, a, b);
         }
-    if (has_t) cal_temp_set(tmv);
+    if (has_t && have) cal_temp_set(tmv);
     if ((have & 15) == 15 && cal_solve() == 0) cal_on = on;
     ui_redraw_full();
-    return 0;
+    return refused;                                  /* 1: settings recalled, calibration refused */
 }
 
 /* ---------- config ---------- */
@@ -201,7 +203,8 @@ void store_command(int argc, char **argv)
     }
     if (streq(c, "recall")) {
         if (n < 0 || n >= NSLOTS) { con_puts("usage: recall <0-6>\r\n"); return; }
-        con_puts(store_recall(n) ? "error: slot empty\r\n" : "ok\r\n"); return;
+        int r = store_recall(n);
+        con_puts(r < 0 ? "error: slot empty\r\n" : r ? "ok; calibration refused: made under an older capture timing, recalibrate\r\n" : "ok\r\n"); return;
     }
     /* config */
     const char *a = argc > 1 ? argv[1] : "";

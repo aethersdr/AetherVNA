@@ -1061,7 +1061,7 @@ static void act(int a)
     if (a >= A_FILE0 && a < A_FILEEND) {
         int k = a - A_FILE0; if (k >= sd_nfiles) return;
         int r = sd_load_cal(sd_files[k]);
-        say(r ? "could not load that file" : "calibration and its sweep loaded", 3000);
+        say(r == -5 ? "refused: made under an older capture timing" : r ? "could not load that file" : "calibration and its sweep loaded", 3000);
         if (!r) menu_close();
         return;
     }
@@ -1113,7 +1113,9 @@ static void act(int a)
     }
     if (a >= A_RCL0 && a < A_RCLEND) {
         int n = a - A_RCL0;
-        if (store_recall(n)) { say("that slot is empty", 3000); return; }
+        int r = store_recall(n);
+        if (r < 0) { say("that slot is empty", 3000); return; }
+        if (r > 0) say("calibration refused: older capture timing; recalibrate", 5000);
         say("recalled", 3000); menu_close(); return;
     }
     if (a >= A_MK0 && a < A_MKEND) {
@@ -1444,7 +1446,7 @@ static void draw_readout(void)
     p = put_s(p, "  Z "); p = put_rx(p, z, 2); p = put_s(p, " " OHM "  SWR "); p = put_fx(p, swr, 3); p = put_s(p, "  ");
     p = put_lc(p, z.im, w);
     uint8_t fl = pts[idx].flags;
-    put_s(p, fl & PF_RANGE ? "  range" : fl & PF_CLIP ? "  CLIP" : fl & PF_LOWREF ? "  low ref" : "");
+    put_s(p, fl & PF_RANGE ? "  range" : fl & PF_MISSED ? "  MISSED" : fl & PF_CLIP ? "  CLIP" : fl & PF_LOWREF ? "  low ref" : "");
     line_text(2, RY0, b, C_TEXT, xm);
     p = put_s(b, "S11 "); p = put_sfx(p, c_db(s11), 2); p = put_s(p, " dB "); p = put_sfx(p, c_deg(s11), 1);
     p = put_s(p, DEG "   S21 "); p = put_sfx(p, c_db(s21), 3); p = put_s(p, " dB "); p = put_sfx(p, c_deg(s21), 2); p = put_s(p, DEG);

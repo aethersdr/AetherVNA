@@ -388,13 +388,23 @@ uint16_t adc_single(int ch)
  * off instead of the segment mean: a periodic Hann window has no response to
  * DC at the IF bin, so the result is the same (checked against dft3 by `raw`).
  * The samples are still stored for `raw`. */
-uint32_t capture_cycles, capture_seq;
+uint32_t capture_cycles, capture_seq, capture_retries;
 int capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip, cpx out[4])
 {
     static const uint8_t st[4][2] = { {1, 0}, {0, 0}, {0, 1}, {1, 0} };
     int nseg = sweep_cfg.bracket ? 4 : 3, seg = SEG_N + settle, total = nseg * seg;
     if (settle < 0 || settle > 300) return -1;
-    pin_set(P_STIM_PORT, st[0][0]); pin_set(P_RX_SEL, st[0][1]);
+    /* Each boundary is two stores of precomputed masks (PA6, PA7 on GPIOA):
+     * a function call there cost a conversion per boundary from stage 21 on
+     * (NOTES.md, stage 24). */
+    uint32_t set_m[4], clr_m[4];
+    for (int q = 0; q < 4; q++) {
+        set_m[q] = (st[q][0] ? 1u << (P_STIM_PORT & 15) : 0) | (st[q][1] ? 1u << (P_RX_SEL & 15) : 0);
+        clr_m[q] = (st[q][0] ? 0 : 1u << (P_STIM_PORT & 15)) | (st[q][1] ? 0 : 1u << (P_RX_SEL & 15));
+    }
+    volatile uint32_t *gset = &GPIO_SCR(P_STIM_PORT >> 4), *gclr = &GPIO_CLR(P_STIM_PORT >> 4);
+    float sre[4], sim[4];
+    *gset = set_m[0]; *gclr = clr_m[0];
     ADC_OSQ3 = 0;
     ADC_CTRL2 |= 1u << 1; ADC_CTRL2 |= 1u << 22;     /* continuous, start */
     uint8_t c = 0;
@@ -403,10 +413,9 @@ int capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip, cpx out[4])
     float re = 0, im = 0;
     uint32_t t0 = 0;
     for (int i = 0; i < total; i++, j++) {
-        if (j == seg) {
-            out[k] = c_mk(re * (2.0f / 1000.0f), im * (2.0f / 1000.0f));   /* window sum 1000 */
-            re = im = 0; j = 0; k++;
-            pin_set(P_STIM_PORT, st[k][0]); pin_set(P_RX_SEL, st[k][1]);
+        if (j == seg) {                              /* no arithmetic here: scaled after the loop */
+            sre[k] = re; sim[k] = im; re = im = 0; j = 0; k++;
+            *gset = set_m[k]; *gclr = clr_m[k];
         }
         while (!(ADC_STS & 2)) ;
         uint16_t v = ADC_ODT & 0xFFF;
@@ -424,13 +433,17 @@ int capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip, cpx out[4])
     }
     capture_cycles = DWT_CYCCNT - t0;                /* first to last sample: (total - 1) * 82 if none missed */
     capture_seq++;                                   /* adc_buf rewritten (after the loop: no cost to it) */
-    out[k] = c_mk(re * (2.0f / 1000.0f), im * (2.0f / 1000.0f));
+    sre[k] = re; sim[k] = im;
+    for (int q = 0; q <= k; q++) out[q] = c_mk(sre[q] * (2.0f / 1000.0f), sim[q] * (2.0f / 1000.0f));   /* window sum 1000 */
     ADC_CTRL2 &= ~(1u << 1);
     while (ADC_CTRL2 & (1u << 22)) ;
     (void)ADC_ODT;
     pin_set(P_STIM_PORT, 1); pin_set(P_RX_SEL, 0);
     *n_out = total; *clip = c;
-    return 0;
+    /* A conversion overwritten before it was read moves every later sample
+     * one ADC period (82 cycles); the fixed overhead is under one period. */
+    uint32_t over = capture_cycles - (uint32_t)(total - 1) * ADC_PERIOD;
+    return capture_cycles < (uint32_t)(total - 1) * ADC_PERIOD ? 0 : (int)(over / ADC_PERIOD);
 }
 
 /* Hann-windowed DFT of each segment at exactly 41 cycles per 2000 samples,
@@ -475,7 +488,9 @@ int measure_point(int i, uint64_t f)
     for (int k = 0; k < avg; k++) {
         int n; uint8_t clip; cpx z[4];
         if (k && sweep_cfg.retune) tune(f, &tuned);   /* a fresh synthesizer state per capture */
-        capture3(sweep_cfg.settle, adc_buf, &n, &clip, z);
+        int miss = capture3(sweep_cfg.settle, adc_buf, &n, &clip, z);
+        for (int t = 0; miss > 0 && t < 3; t++) { capture_retries++; miss = capture3(sweep_cfg.settle, adc_buf, &n, &clip, z); }
+        if (miss) fl |= PF_MISSED;                            /* still short of samples after three tries */
         float r2 = c_abs2(z[0]);
         if (clip) fl |= PF_CLIP;
         if (r2 < 400.0f) { fl |= PF_LOWREF; r2 = r2 > 0 ? r2 : 1; }   /* below 20 counts */

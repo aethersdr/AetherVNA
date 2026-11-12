@@ -574,7 +574,7 @@ int sd_save_touchstone(int two_port, int autoname, char *name)
 }
 
 /* ---------- calibration files (binary, exact) ---------- */
-static const char cal_magic[8] = { 'A', 'V', 'N', 'A', 'C', 'A', 'L', '1' };
+static const char cal_magic[8] = { 'A', 'V', 'N', 'A', 'C', 'A', 'L', '0' + CAPTURE_REV };   /* the digit: the capture timing */
 int sd_save_cal(int autoname, char *name)
 {
     uint64_t cs, ce; int cn;
@@ -601,7 +601,8 @@ int sd_load_cal(const char *name)
     fr_t r; if (fr_open(&r, name)) return -2;
     char m[8]; uint8_t sz; sweep_cfg_t s;
     if (fr_bytes(&r, m, 8) || fr_bytes(&r, &sz, 1)) return -3;
-    for (int k = 0; k < 8; k++) if (m[k] != cal_magic[k]) return -3;
+    for (int k = 0; k < 7; k++) if (m[k] != cal_magic[k]) return -3;
+    if (m[7] != cal_magic[7]) return -5;                               /* another capture timing */
     if (sz != sizeof s || fr_bytes(&r, &s, sizeof s)) return -4;       /* another firmware layout */
     if (s.points < 1 || s.points > POINTS_MAX || s.start < FREQ_MIN || s.stop > FREQ_MAX) return -3;
     uint8_t have, enh, on;

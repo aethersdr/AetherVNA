@@ -103,6 +103,7 @@ static void cmd_info(void)
     else { con_puts("off for "); con_udec((ms_ticks - hb_last_ms) / 1000); con_puts(" s"); }
     nl();
     con_puts("MCU temperature sensor: "); con_float(mcu_sensor_mv(), 1); con_puts(" mV\r\n");
+    con_puts("Capture timing: rev "); con_udec(CAPTURE_REV); con_puts(", recaptures "); con_udec(capture_retries); nl();
 }
 
 static void cmd_cal(void)
@@ -175,10 +176,11 @@ static void cmd_raw(void)
     if (tune(f, &tuned) < 0) { con_puts("error: frequency out of range\r\n"); return; }
     vna_adc_init();
     int n; uint8_t clip; cpx z[4], zi[4];
-    capture3(sweep_cfg.settle, adc_buf, &n, &clip, zi);
+    int miss = capture3(sweep_cfg.settle, adc_buf, &n, &clip, zi);
     dft3(adc_buf, sweep_cfg.settle, z);
     con_puts("tuned "); put_u64(tuned); con_puts(" settle "); con_udec(sweep_cfg.settle); con_puts(" n "); con_udec(n);
-    con_puts(" clip "); con_udec(clip); con_puts(" cycles "); con_udec(capture_cycles); con_puts(" expected "); con_udec((uint32_t)(n - 1) * 82u); nl();
+    con_puts(" clip "); con_udec(clip); con_puts(" cycles "); con_udec(capture_cycles); con_puts(" expected "); con_udec((uint32_t)(n - 1) * 82u);
+    con_puts(" missed "); con_udec(miss > 0 ? (uint32_t)miss : 0); nl();
     for (int k = 0; k < (sweep_cfg.bracket ? 4 : 3); k++) { con_puts(k == 0 ? "ref " : k == 1 ? "port1 " : k == 2 ? "port2 " : "ref2 "); put_cpx(z[k]); con_puts(" inline "); put_cpx(zi[k]); nl(); }
     for (int i = 0; i < n; i++) { con_hex(adc_buf[i], 3); if ((i & 31) == 31) nl(); }
     nl(); con_puts("end\r\n");
@@ -239,7 +241,7 @@ void console_line(char *line)
     else if (streq(c, "flags")) {
         for (int i = 0; i < sweep_cfg.points; i++) {
             put_u64(pts[i].f_tuned); con_putc(' '); con_float(pts[i].ref, 1); con_putc(' ');
-            con_puts(pts[i].flags & PF_RANGE ? "range" : pts[i].flags & PF_CLIP ? "clip" : pts[i].flags & PF_LOWREF ? "lowref" : "ok"); nl();
+            con_puts(pts[i].flags & PF_RANGE ? "range" : pts[i].flags & PF_MISSED ? "missed" : pts[i].flags & PF_CLIP ? "clip" : pts[i].flags & PF_LOWREF ? "lowref" : "ok"); nl();
         }
     }
     else if (streq(c, "cal")) cmd_cal();

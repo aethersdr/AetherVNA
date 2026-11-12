@@ -33,7 +33,7 @@ int  avg_for(uint64_t f);
 int  gain_for(uint64_t f);               /* code: bit0 PB14 (x3), bit1 PB15 (x1.9); both x8 */
 
 /* Per point: raw ratios (port / reference), the frequency actually tuned, flags. */
-enum { PF_CLIP = 1, PF_LOWREF = 2, PF_RANGE = 4 };
+enum { PF_CLIP = 1, PF_LOWREF = 2, PF_RANGE = 4, PF_MISSED = 8 };   /* missed: ADC conversions lost in every retry */
 typedef struct {
     cpx s11, s21;
     uint64_t f_tuned;                    /* (after the floats: 32 bytes a point, not 40) */
@@ -65,10 +65,15 @@ int  ms_write(uint8_t reg, const uint8_t *v, int n);
 int  ms_read(uint8_t reg, uint8_t *v, int n);
 void mx_write(uint8_t le, uint32_t w);
 float mcu_sensor_mv(void);
-int  capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip, cpx out[4]);
+int  capture3(int settle, uint16_t *buf, int *n_out, uint8_t *clip, cpx out[4]);   /* conversions lost, or -1 */
 void dft3(const uint16_t *buf, int settle, cpx out[4]);
 extern uint16_t adc_buf[];
-extern uint32_t capture_cycles, capture_seq;          /* of the last capture, first to last sample */
+extern uint32_t capture_cycles, capture_seq, capture_retries;   /* of the last capture, first to last sample; recaptures */
+#define ADC_PERIOD 82u                   /* core cycles per conversion */
+/* The capture's timing revision: raw phases differ between revisions, so a
+ * calibration made under another one is refused. 1: stages 21-23 (a
+ * conversion lost at each segment boundary); 2: stage 24 on (none). */
+#define CAPTURE_REV 2
 float vbat_volts(void);
 void vna_adc_init(void);
 uint16_t adc_single(int ch);              /* e.g. 9 = PB1, the jog ladder */

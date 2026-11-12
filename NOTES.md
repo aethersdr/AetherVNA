@@ -1055,19 +1055,14 @@ Built:
 
 Not thermal: **50 kHz phase moves in whole IF samples with the screen.**
 Its 7.4-7.6 deg swings in both runs are steps of exactly one sample
-(41/2000 of the 12 kHz IF, 7.38 deg; within 0.44 deg in run 1, 0.96 in
-run 2): +1 when the screen came on in run 1, -1 when it went off and back
-when it came on in run 2. No other frequency steps. Something tied to the
-screen's state shifts the 50 kHz capture by one sample (open: the earlier
-+0.5 dB screen-on step at 50 kHz is likely related).
+(41/2000 of the 12 kHz IF, 7.38 deg): +1 when the screen came on in run 1,
+-1 when it went off and back when it came on in run 2. Found in stage 24:
+lost ADC conversions in the first capture after the UI has run; 50 kHz
+was simply each sweep's first point.
 
 Checks on the unit:
-- the capture: `capture3` moved by 0x4FC and now takes (6600 - 1) x 82
-  cycles plus 223, not 63-66, identical on every capture; where the extra
-  ~160 cycles go is not found. A slipped conversion would move every
-  frequency's phase by 7.38 deg; the raw short, 0.1-2 MHz, on this build
-  agrees with the last sweep of run 2 within 0.09 deg (0.05 MHz moved one
-  step, as the screen state predicts);
+- the capture: (6600 - 1) x 82 cycles plus 223, not 63-66. Not from this
+  stage: stage 21's build already took 222, two lost conversions (stage 24);
 - the correction: with an identity calibration and the calibration's
   temperature set 10 mV below the lagged reading, corrected/raw matched
   the table within 1e-5 dB (e.g. 0.1 MHz -0.0535 dB, -0.258 deg), and was
@@ -1086,6 +1081,57 @@ After a reset the lag starts from
 that moment's reading, and stage 11 saw the sensor rise 3-5 mV after a
 reboot while the low band stayed flat: the warning can be wrong for the
 first several minutes after a reset or power-on.
+
+## Stage 24: two ADC conversions lost per capture since stage 21; fixed and guarded (2026-11-11)
+
+The capture loop reads each conversion within its 82-cycle period. Builds
+by stage (`raw 1000000`, 6600 samples, expected 541,118 cycles):
+
+| Build | Cycles | Over | Raw S11 / S21 at 1 MHz, the thru on |
+|---|---|---|---|
+| c962801 (stage 20) | 541,179 | 61 | 60.19 / -16.14 deg |
+| 264229b (stage 21) | 541,340 | 222 | 67.54 / -1.38 deg |
+| 47b36e2 (stage 23) | 541,341 | 223 | 67.58 / -1.38 deg |
+| stage 24 | 541,177 | 59 | 60.23 / -16.07 deg |
+
+From stage 21, every capture lost one conversion at each segment boundary
+(reference to port 1, port 1 to port 2): +161 cycles, and raw S11 rotated
++7.36..+7.46 deg, S21 +14.76..+14.77 deg (one and two samples) at 0.3, 1
+and 10 MHz alike. Stage 21 changed nothing in the capture; adding rtc.c
+moved code, and (inferred, not traced) the boundary, two `pin_set` calls and the segment's
+scaling, no longer fitted in one period. Consistent losses calibrate out,
+so measurements made and calibrated on one build were right (the stage 23
+thru check: 1.8-55 MHz -0.003..+0.004 dB). But the loop had no slack left:
+on 05cf1ae, with the screen on, the first capture after the UI ran took
+308 over (a third conversion lost), the next 222. In stage 23's heat runs
+that was each sweep's first point, 50 kHz, and it followed the screen.
+Modelled through the stage 23 hf55 calibration, one such capture at
+1.8-55 MHz puts a thru 7.4 deg and up to 0.014 dB off, a short or open up
+to 0.2 dB and 8 deg off, and a load's return loss down to 33.5 dB, with
+nothing flagged.
+
+Fixed:
+- the boundary does no arithmetic and makes no calls: the segment's sums
+  are stored and scaled after the loop, and the two pins are set by two
+  stores of precomputed masks;
+- the guard: a capture whose cycles show a lost conversion (over by one
+  period or more; the fixed part is 57-65) is recaptured, up to three
+  times, and the point is flagged `missed` if it never comes clean. `raw`
+  prints `missed`, `info` the count of recaptures;
+- calibrations carry the capture timing (CAPTURE_REV 2; 1 for stages
+  21-23): flash slots in byte 3, bits 4-7, SD files in the magic's digit
+  (AVNACAL2); an older one is refused (a slot's settings still load), and
+  the bench's calibrate.py refuses a host calibration made under another
+  timing. Stage 20 and earlier ran this timing too but carry no mark, so
+  they are refused as well.
+
+Checked on the unit: 59 over at 50 kHz, 1 MHz, 54 MHz, 100 MHz, 1 GHz and
+6 GHz; 59 on every first and second capture after 10 UI redraws with the
+screen on, and with the display sweeping; 57-65 in bracket mode (four
+segments); inline and separate DFTs agree; raw phases back on stage 20's
+within 0.1 deg. Slot 1 (the maintainer's, stage 22) and the stage 23 hf55
+host session are refused and must be redone. Not checked: the guard
+itself, as no capture lost a conversion to trigger it.
 
 ## Recovery
 
@@ -1135,3 +1181,5 @@ recording (2026-11-10).
 - Stages 19-22: TX power, cal kit, expert settings, USB hot replug.
 - Stage 23: low-band drift tracked by the MCU sensor with a 240 s lag;
   calibrations record it and warn; a correction is built, off until validated.
+- Stage 24: two conversions lost per capture since stage 21: fixed, guarded,
+  calibrations marked with the capture timing (older ones refused).

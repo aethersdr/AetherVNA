@@ -69,6 +69,7 @@ See [`NOTES.md`](NOTES.md) for decisions, sources, findings and recovery.
 | 21: expert settings: band split, TCXO trim, VBAT offset, remember state, raw samples, RTC date and time, firmware dump; brightness (DAC on the backlight control) | Done |
 | 22: USB hot replug (polled USB served during enumeration, USB clock from the TCXO, a USB watchdog) | Done |
 | 23: low-band temperature drift: tracked by the MCU sensor with a 240 s lag; calibrations record it, the screen warns when it moves; a 0.1-2 MHz correction, off until validated | Done (warning); correction gated |
+| 24: capture timing: the two conversions lost per capture since stage 21 restored, a recapture guard, calibrations marked with the capture timing (older ones refused) | Done |
 | Later: open/short level check above 1 GHz, the near-integer MAX2871 states, validating the temperature correction | Planned |
 
 ## Build and flash

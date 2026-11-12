@@ -1130,8 +1130,12 @@ Checked on the unit: 59 over at 50 kHz, 1 MHz, 54 MHz, 100 MHz, 1 GHz and
 screen on, and with the display sweeping; 57-65 in bracket mode (four
 segments); inline and separate DFTs agree; raw phases back on stage 20's
 within 0.1 deg. Slot 1 (the maintainer's, stage 22) and the stage 23 hf55
-host session are refused and must be redone. Not checked: the guard
-itself, as no capture lost a conversion to trigger it.
+host session are refused and must be redone. The guard, on a throwaway
+build delaying the first boundary by 120 cycles: on alternate captures,
+`raw` showed `missed 2` on the delayed ones and a 5-point scan came back
+all `ok` after 5 recaptures; on every capture, all 5 points were flagged
+`missed` after 3 recaptures each. Not checked on the unit: SD files
+under the new magic (saving needs the screen on).
 
 ## Recovery
 

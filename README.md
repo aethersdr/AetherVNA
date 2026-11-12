@@ -96,9 +96,9 @@ commands follow NanoVNA-D so existing tools can drive it:
 | `cal open\|short\|load\|thru\|done\|on\|off\|reset` | one-path SOLT on the device (RAM only for now) |
 | `calkit [ideal\|open\|short\|load\|thru ..]` | calibration standards model (kept by `config save`) |
 | `cal get <std\|terms>`, `cal put <std> <i> <4 values>` | read standards and error terms; restore a saved calibration |
-| `flags` | per point: tuned frequency, reference level, ok/clip/lowref/range |
+| `flags` | per point: tuned frequency, reference level, ok/clip/lowref/range/missed (conversions lost in every recapture) |
 | `gain [auto\|0..3]`, `avg [auto\|n]`, `retune [0\|1]`, `bracket [0\|1]`, `settle`, `tsettle`, `power [0-3]`, `split [Hz]`, `tcxo [Hz]`, `time [YYYYMMDDhhmmss]` | measurement and clock settings |
-| `info`, `version`, `vbat`, `temp`, `jog`, `touch` | identity, state, battery, MCU temperature sensor (mV), inputs |
+| `info`, `version`, `vbat`, `temp`, `jog`, `touch` | identity, state (with the capture timing revision and recaptures), battery, MCU temperature sensor (mV), inputs |
 | `temp [comp 0\|1\|warn <mV>]`, `cal temp [mV]` | the sensor now and lagged 240 s, the calibration's reading, whether it moved; the gated correction; a restored calibration's temperature |
 | `trace [1-4 [on\|off\|s11\|s21\|<format>\|scale <v>\|ref <v>\|refpos <d>\|auto\|active]]` | the screen's traces; formats `logmag phase swr smith linear r x z` |
 | `marker [1-4 [on\|off\|active\|<index>\|minswr\|max\|min]]` | the screen's markers |
@@ -109,7 +109,7 @@ commands follow NanoVNA-D so existing tools can drive it:
 | `measure [off\|lc\|cable\|shuntlc\|seriesl\|xtal]`, `measure rl\|vf <v>` | MEASURE modes: L/C match, cable, shunt LC, series L, crystal (results printed and drawn on screen) |
 | `transform [on\|off\|impulse\|step\|bandpass\|window min\|normal\|max\|span <s>]` | time domain |
 | `sd status\|probe\|cs\|init\|mount\|ls\|verify\|write`, `sd save s1p\|s2p\|cal\|bmp [fixed]`, `sd load\|cat\|hex\|rm <file>` | microSD (SPI1, chip select PB9), FAT32, Touchstone and calibration files; `fat`, `fatrange`, `patsec`, `unlink`, `fsinfo` for repair |
-| `raw <freq>`, `tune`, `ms`, `mx`, `pin`, `clk`, `point <i> <4 values>` | diagnostics (`point` writes a raw sweep point, paused: for testing) |
+| `raw <freq>`, `tune`, `ms`, `mx`, `pin`, `clk`, `point <i> <4 values>` | diagnostics (`raw` prints the capture's cycles and conversions `missed`; `point` writes a raw sweep point, paused: for testing) |
 | `bootloader`, `reset` | refused while the jog is pressed |
 
 On the device: tap the screen (or double-click the jog right) for the menu;

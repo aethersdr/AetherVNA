@@ -1077,8 +1077,12 @@ Checks on the unit:
   against 0.0014 / 0.0071 dB for host scans without readings;
 - save/recall of the temperature in a flash slot, the warning (threshold
   set to 0.01 mV), `cal put` reading as unknown.
-Not checked on the unit: the SD calibration file's new tail (saving needs
-the menu, which needs the screen on). After a reset the lag starts from
+- the SD calibration file's tail: a 5-point calibration given 1432.10 mV,
+  saved through the menu (screen on briefly, with the maintainer's leave)
+  as AVNA0001.CAL, 368 bytes (364 without the tail); after `cal reset`,
+  LOAD restored it with 1432.10 mV, and it reported "temp moved" at once
+  (the board read about 6 mV higher).
+After a reset the lag starts from
 that moment's reading, and stage 11 saw the sensor rise 3-5 mV after a
 reboot while the low band stayed flat: the warning can be wrong for the
 first several minutes after a reset or power-on.

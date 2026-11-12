@@ -122,7 +122,13 @@ static const uint8_t *string_desc(int idx, uint16_t *len)
     return str_buf;
 }
 
-static uint32_t n_reset, n_susp, n_wake, n_restart, enum_t; static uint8_t enum_wd, restart_run;
+static uint32_t n_reset, n_susp, n_wake, n_restart, n_noise, enum_t; static uint8_t enum_wd, restart_run;
+/* SOFs seen since the last bus reset. With nothing plugged in, the floating
+ * data lines can read as a bus reset (seen 2026-11-11: a cold boot on battery
+ * reset the chip every ~5 s through the enumeration watchdog). A host sends
+ * an SOF every millisecond after a reset, noise does not: no SOFs, no host. */
+static uint8_t sof_seen;
+#define HOST_SOFS 3
 /* Kept across a chip reset (.noinit), to see afterwards what the watchdog did. */
 static struct { uint32_t magic, sysresets, restarts_before; } usb_keep __attribute__((section(".noinit")));
 static uint8_t tx_ring[1024];   /* 4 KB before stage 17; output just waits on the host a little more */ static uint16_t tx_head, tx_tail; static uint8_t tx_busy, tx_last_full;
@@ -141,6 +147,7 @@ static void configure_data_eps(void)
 
 static void handle_setup(void)
 {
+    usb_host_seen = 1;                               /* a SETUP: certainly a host */
     uint8_t s[8]; pma_read(BUF_EP0_RX, s, 8);
     uint8_t type = s[0], req = s[1];
     uint16_t value = s[2] | s[3] << 8, wlen = s[6] | s[7] << 8;
@@ -242,8 +249,11 @@ int usb_enumerating(void) { return enum_wd && !configured; }
  * reset is not followed by SET_CONFIGURATION within 1.5 s, start over as at
  * power-on: pull-up off (the host sees a disconnect), core reset, the
  * clock's boot trim and calibration, pull-up on (a fresh connection). Armed
- * only by a bus reset, so it never runs with nothing plugged in. Artery's
- * FAQ0134 likewise recovers a broken USB clock by starting over. */
+ * by a bus reset, but it acts only if a host followed it with SOFs or a
+ * SETUP: with nothing plugged in, noise on the floating lines can look like a
+ * bus reset, and acting on that reset the chip every ~5 s on battery
+ * (2026-11-11). Artery's FAQ0134 likewise recovers a broken USB clock by
+ * starting over. */
 static void usb_restart(void)
 {
     USB_CFG = 0x0002;                                /* D+ pull-up off */
@@ -263,6 +273,7 @@ void usb_poll(void)
 {
     if (enum_wd && !configured && ms_ticks - enum_t > 1500) {
         enum_wd = 0;
+        if (!usb_host_seen) { n_noise++; return; }   /* a bus reset no host followed: line noise, not a failed enumeration */
         if (restart_run < 2) { usb_restart(); return; }
         /* Restarting USB alone did not help twice: a chip reset (boot always
          * enumerates). Never with the jog held: that starts the ROM bootloader. */
@@ -277,7 +288,7 @@ void usb_poll(void)
     tx_kick();
     uint16_t ists = USB_INTSTS;
     if (ists & 0x0400) {                                                          /* bus reset: a host is there */
-        USB_INTSTS = (uint16_t)~0x0400; usb_reset(); usb_host_seen = 1;
+        USB_INTSTS = (uint16_t)~0x0400; usb_reset(); usb_host_seen = 0; sof_seen = 0;   /* a host only once SOFs follow */
         if (!usb_on_pll) ACC_CTRL1 |= 1u;            /* HICK: calibration back on, SOFs are coming */
         n_reset++; enum_t = ms_ticks; enum_wd = restart_run < 5;   /* enumeration should finish soon (not on a charger's endless reset) */
         return;
@@ -292,7 +303,7 @@ void usb_poll(void)
         n_susp++;
     }
     if (ists & 0x1000) { USB_INTSTS = (uint16_t)~0x1000; if (!usb_on_pll) ACC_CTRL1 |= 1u; n_wake++; }   /* wakeup (resume without a reset): calibration back on */
-    if (ists & 0x0200) USB_INTSTS = (uint16_t)~0x0200;                            /* SOF */
+    if (ists & 0x0200) { USB_INTSTS = (uint16_t)~0x0200; if (sof_seen < HOST_SOFS && ++sof_seen == HOST_SOFS) usb_host_seen = 1; }   /* SOF: a host is there */
     if (ists & 0x0100) USB_INTSTS = (uint16_t)~0x0100;                            /* expected SOF missing */
     if (ists & 0x2000) USB_INTSTS = (uint16_t)~0x2000;                            /* error */
     if (ists & 0x4000) USB_INTSTS = (uint16_t)~0x4000;                            /* buffer overrun */
@@ -381,7 +392,7 @@ void usb_reconnect(void) { con_flush(); usb_restart(); }   /* console `usb resta
 void usb_report(void)                                /* console `usb`: what the link has been through */
 {
     con_puts("resets "); con_udec(n_reset); con_puts(" suspends "); con_udec(n_susp); con_puts(" wakeups "); con_udec(n_wake);
-    con_puts(" restarts "); con_udec(n_restart); con_puts(" configured "); con_udec(configured);
+    con_puts(" restarts "); con_udec(n_restart); con_puts(" noise-resets "); con_udec(n_noise); con_puts(" host "); con_udec(usb_host_seen); con_puts(" configured "); con_udec(configured);
     con_puts(" trim "); con_udec((CRM_CTRL >> 2) & 0x3F); con_puts(" (boot "); con_udec((hick_trim_boot >> 2) & 0x3F); con_puts(") cal "); con_udec((CRM_CTRL >> 8) & 0xFF);
     con_puts(" acc 0x"); con_hex(ACC_CTRL1, 4);
     con_puts(" sclk "); con_puts(clock_on_tcxo() ? "tcxo" : "hick"); con_puts(" usbclk "); con_puts(usb_on_pll ? "pll (tcxo)" : "hick+acc");
